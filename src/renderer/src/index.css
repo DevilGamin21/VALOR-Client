@@ -1,0 +1,123 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    background-color: #0a0a0a;
+    color: #ffffff;
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #555;
+  }
+}
+
+@layer utilities {
+  /* Draggable titlebar region */
+  .app-drag {
+    -webkit-app-region: drag;
+  }
+  .app-no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  /* Glass card */
+  .glass {
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  /* Gradient border card (login) */
+  .gradient-border {
+    background: linear-gradient(to bottom, rgba(255,255,255,0.10), rgba(255,255,255,0.02));
+    border-radius: 1rem;
+    padding: 1px;
+  }
+  .gradient-border-inner {
+    background: #0f0f0f;
+    border-radius: calc(1rem - 1px);
+  }
+}
+
+/* Floating particle animation */
+@keyframes valor-float {
+  0%   { transform: translateY(0)   rotate(0deg);   opacity: var(--op); }
+  50%  { transform: translateY(-20px) rotate(180deg); opacity: calc(var(--op) * 0.5); }
+  100% { transform: translateY(0)   rotate(360deg); opacity: var(--op); }
+}
+
+/* Scan-line shimmer */
+@keyframes scan-shimmer {
+  0%   { opacity: 0; }
+  50%  { opacity: 0.6; }
+  100% { opacity: 0; }
+}
+
+/* Progress bar fill animation */
+@keyframes progress-indeterminate {
+  0%   { left: -40%; width: 40%; }
+  100% { left: 100%; width: 40%; }
+}
+
+/* Blob drift */
+@keyframes blob-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(30px, -20px) scale(1.05); }
+  66%       { transform: translate(-20px, 10px) scale(0.95); }
+}
+
+.animate-blob {
+  animation: blob-drift 8s ease-in-out infinite;
+}
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+.animation-delay-4000 {
+  animation-delay: 4s;
+}
+
+/* Gamepad spatial-navigation focus ring */
+.gp-focused {
+  outline: 2px solid rgba(255, 255, 255, 0.7);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* Spinning ring (login dot) */
+@keyframes valor-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Video controls fade */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}

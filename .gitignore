@@ -1,0 +1,14 @@
+node_modules/
+out/
+dist/
+*.log
+.DS_Store
+Thumbs.db
+.env
+.env.*
+.claude/
+
+# mpv binaries — too large for GitHub (download separately)
+resources/mpv/*.exe
+resources/mpv/*.dll
+resources/mpv/*.com
