@@ -432,7 +432,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       largeImageKey: job.posterUrl || undefined,
       largeImageText: job.posterUrl ? (job.seriesName || job.title) : undefined,
       instance: false,
-      buttons: [{ label: 'Get VALOR', url: 'https://valor.dawn-star.co.uk/download/' }],
+      buttons: [{ label: 'Get VALOR', url: 'https://github.com/DevilGamin21/VALOR-Client/releases/latest/download/VALOR-Setup.exe' }],
     }).catch(() => {})
   }
 

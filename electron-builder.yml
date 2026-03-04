@@ -38,8 +38,8 @@ win:
       arch: [x64]
   icon: icon/logo.png
 
-  # Versioned artifact name so older installers are never silently overwritten
-  artifactName: VALOR-Setup-${version}.exe
+  # Fixed artifact name so the GitHub "latest" download URL stays stable
+  artifactName: VALOR-Setup.exe
 
   # No code-signing certificate — skip signing entirely so winCodeSign
   # (which contains macOS symlinks) is never downloaded on Windows.
