@@ -781,41 +781,29 @@ export default function PlayModal({ item, onClose }: Props) {
                               key={ep.id}
                               className="relative flex items-center gap-3 px-3 py-3 rounded-lg bg-white/5 hover:bg-white/8 transition overflow-hidden"
                             >
-                              {/* Bottom progress bar */}
-                              {(hasProgress || isWatched) && (
-                                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-white/10">
-                                  <div
-                                    className={`h-full ${isWatched ? 'bg-emerald-500' : 'bg-red-500'}`}
-                                    style={{ width: `${isWatched ? 100 : pct}%` }}
-                                  />
-                                </div>
-                              )}
-
                               {/* Episode number */}
                               <span className="flex-shrink-0 w-6 text-right text-xs font-mono tabular-nums text-white/25">
                                 {ep.episodeNumber}
                               </span>
 
-                              {/* Title + badges */}
+                              {/* Title */}
                               <div className="flex-1 min-w-0">
                                 <p className={`text-sm font-medium truncate leading-snug ${ep.onDemand ? 'text-white' : 'text-white/40'}`}>
                                   {ep.title}
                                 </p>
-                                {(isWatched || hasProgress) && (
-                                  <div className="flex items-center gap-1.5 mt-0.5">
-                                    {isWatched && (
-                                      <span className="text-[9px] font-semibold tracking-wide uppercase
-                                                       text-emerald-400 bg-emerald-900/25 border border-emerald-700/30
-                                                       px-1.5 py-0.5 rounded">
-                                        Watched
-                                      </span>
-                                    )}
-                                    {hasProgress && (
-                                      <span className="text-[10px] text-white/30">{Math.round(pct)}%</span>
-                                    )}
-                                  </div>
-                                )}
                               </div>
+
+                              {/* Progress % + Watched badge — left of 3-dots */}
+                              {hasProgress && (
+                                <span className="flex-shrink-0 text-[10px] text-white/30">{Math.round(pct)}%</span>
+                              )}
+                              {isWatched && (
+                                <span className="flex-shrink-0 text-[9px] font-semibold tracking-wide uppercase
+                                                 text-emerald-400 bg-emerald-900/25 border border-emerald-700/30
+                                                 px-1.5 py-0.5 rounded">
+                                  Watched
+                                </span>
+                              )}
 
                               {/* Options button — dropdown rendered at modal root via fixed position */}
                               {ep.jellyfinId && (
