@@ -171,6 +171,7 @@ export async function lookupJellyfinItem(itemId: string): Promise<{
   seriesId: string | null
   type: 'tv' | 'movie'
   overview: string | null
+  posterUrl: string | null
 }> {
   return request(`/jellyfin/item-tmdb/${encodeURIComponent(itemId)}`)
 }

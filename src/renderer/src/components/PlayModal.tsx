@@ -82,6 +82,7 @@ export default function PlayModal({ item, onClose }: Props) {
   // Resolved Jellyfin series ID — populated by the lookup below so episodes
   // can reference the correct ID even when item.id is an episode ID.
   const [resolvedSeriesId, setResolvedSeriesId] = useState<string | null>(null)
+  const [tmdbPosterUrl, setTmdbPosterUrl] = useState<string | null>(null)
 
   // ── Load seasons for all TV shows ────────────────────────────────────────
   useEffect(() => {
@@ -92,6 +93,7 @@ export default function PlayModal({ item, onClose }: Props) {
     setSelectedSeason(null)
     setEpisodes([])
     setResolvedSeriesId(null)
+    setTmdbPosterUrl(null)
 
     async function loadSeasons() {
       // Resolve the correct Jellyfin series ID via lookup (matches website behaviour).
@@ -103,6 +105,7 @@ export default function PlayModal({ item, onClose }: Props) {
           const lookup = await api.lookupJellyfinItem(String(item.id))
           if (lookup.seriesId) seriesJfId = lookup.seriesId
           if (lookup.tmdbId) tmdbId = lookup.tmdbId
+          if (lookup.posterUrl) setTmdbPosterUrl(lookup.posterUrl)
         } catch {
           // best-effort — fall back to item.id
         }
@@ -253,7 +256,9 @@ export default function PlayModal({ item, onClose }: Props) {
         maxBitrate: directPlay ? undefined : QUALITY_BITRATES[defaultQuality],
         startTimeTicks: startTicks > 0 ? startTicks : undefined,
       })
-      job.posterUrl = item.posterUrl ?? null
+      // Prefer TMDB poster (public URL Discord can fetch) over Jellyfin internal URL
+      job.posterUrl = tmdbPosterUrl
+        || (item.posterUrl?.startsWith('https://image.tmdb.org') ? item.posterUrl : null)
       openPlayer(job, startTicks)
       onClose()
     } catch (e) {
@@ -273,7 +278,8 @@ export default function PlayModal({ item, onClose }: Props) {
         maxBitrate: directPlay ? undefined : QUALITY_BITRATES[defaultQuality],
         startTimeTicks: startTicks > 0 ? startTicks : undefined,
       })
-      job.posterUrl = item.posterUrl ?? null
+      job.posterUrl = tmdbPosterUrl
+        || (item.posterUrl?.startsWith('https://image.tmdb.org') ? item.posterUrl : null)
       const epInfos: EpisodeInfo[] = episodes
         .filter((ep) => ep.onDemand && ep.jellyfinId)
         .map((ep) => ({
