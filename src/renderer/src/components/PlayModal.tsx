@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Play, Plus, Check, Loader2, Lock, Wifi, Download, MoreHorizontal, Eye, EyeOff, Star } from 'lucide-react'
 import * as api from '@/services/api'
@@ -68,9 +68,18 @@ export default function PlayModal({ item, onClose }: Props) {
   const [p2pHash, setP2pHash] = useState<string | null>(null)
   const [digitalReleased, setDigitalReleased] = useState<boolean | null>(null)
 
-  // ── Resume progress check (Jellyfin movies) ──────────────────────────────
+  // ── Auto-resume for Continue Watching items ─────────────────────────────
+  const autoResumed = useRef(false)
   useEffect(() => {
-    if (!item.onDemand || item.type === 'tv') return
+    if (!item.onDemand) return
+    // If the item already carries positionTicks (from Continue Watching), auto-play immediately
+    if (item.positionTicks && item.positionTicks > 0 && item.type === 'movie' && !autoResumed.current) {
+      autoResumed.current = true
+      play(String(item.id), item.positionTicks)
+      return
+    }
+    // Otherwise check Jellyfin for saved progress (movie only)
+    if (item.type === 'tv') return
     api.getItemProgress(String(item.id)).then((progress) => {
       if (progress && progress.percent >= 5 && progress.percent < 90) {
         setResumeTicks(progress.positionTicks)
@@ -259,6 +268,8 @@ export default function PlayModal({ item, onClose }: Props) {
       // Prefer TMDB poster (public URL Discord can fetch) over Jellyfin internal URL
       job.posterUrl = tmdbPosterUrl
         || (item.posterUrl?.startsWith('https://image.tmdb.org') ? item.posterUrl : null)
+      job.seriesId = resolvedSeriesId || item.seriesId || undefined
+      job.tmdbId = item.tmdbId
       openPlayer(job, startTicks)
       onClose()
     } catch (e) {
@@ -280,6 +291,8 @@ export default function PlayModal({ item, onClose }: Props) {
       })
       job.posterUrl = tmdbPosterUrl
         || (item.posterUrl?.startsWith('https://image.tmdb.org') ? item.posterUrl : null)
+      job.seriesId = resolvedSeriesId || item.seriesId || undefined
+      job.tmdbId = item.tmdbId
       const epInfos: EpisodeInfo[] = episodes
         .filter((ep) => ep.onDemand && ep.jellyfinId)
         .map((ep) => ({

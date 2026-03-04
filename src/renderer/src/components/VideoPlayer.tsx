@@ -282,12 +282,24 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         ? video.duration
         : (job.durationTicks ?? 0) / 10_000_000
       if (!durSecs) return
+      const posTicks = Math.floor(video.currentTime * 10_000_000)
+      const durTicks = Math.floor(durSecs * 10_000_000)
       api.reportProgress({
         itemId: job.itemId,
-        positionTicks: Math.floor(video.currentTime * 10_000_000),
-        durationTicks: Math.floor(durSecs * 10_000_000),
+        positionTicks: posTicks,
+        durationTicks: durTicks,
         isPaused: video.paused,
         playSessionId: job.playSessionId
+      }).catch(() => {})
+      api.reportUserProgress({
+        mediaId: job.seriesId || job.itemId,
+        positionTicks: posTicks,
+        durationTicks: durTicks,
+        title: job.seriesName || job.title,
+        posterUrl: job.posterUrl,
+        type: job.seriesId ? 'tv' : job.type,
+        tmdbId: job.tmdbId,
+        seriesId: job.seriesId,
       }).catch(() => {})
     }, 10_000)
 
@@ -322,13 +334,26 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       const durSecs = isFinite(video.duration) && video.duration > 0
         ? video.duration
         : (job.durationTicks ?? 0) / 10_000_000
+      const posTicks = Math.floor(video.currentTime * 10_000_000)
+      const durTicks = Math.floor(durSecs * 10_000_000)
       api.reportProgress({
         itemId: job.itemId,
-        positionTicks: Math.floor(video.currentTime * 10_000_000),
-        durationTicks: Math.floor(durSecs * 10_000_000),
+        positionTicks: posTicks,
+        durationTicks: durTicks,
         isPaused: true,
         playSessionId: job.playSessionId,
         isStopped: true
+      }).catch(() => {})
+      api.reportUserProgress({
+        mediaId: job.seriesId || job.itemId,
+        positionTicks: posTicks,
+        durationTicks: durTicks,
+        title: job.seriesName || job.title,
+        posterUrl: job.posterUrl,
+        type: job.seriesId ? 'tv' : job.type,
+        tmdbId: job.tmdbId,
+        seriesId: job.seriesId,
+        isStopped: true,
       }).catch(() => {})
     }
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)

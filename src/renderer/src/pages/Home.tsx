@@ -26,6 +26,7 @@ function mapContinueWatching(cw: ProgressItem[]): UnifiedMedia[] {
     onDemand: true,
     source: 'jellyfin' as const,
     playedPercentage: p.percent,
+    positionTicks: p.positionTicks,
     seriesId: p.seriesId,
   }))
 }

@@ -257,6 +257,27 @@ export async function getContinueWatching(): Promise<ProgressItem[]> {
   return res.items ?? []
 }
 
+/** Save enriched playback progress to the VALOR per-user progress store.
+ *  This is what populates "Continue Watching" on both the website and client. */
+export async function reportUserProgress(body: {
+  mediaId: string
+  positionTicks: number
+  durationTicks?: number
+  title?: string
+  posterUrl?: string | null
+  type?: string
+  year?: number | null
+  tmdbId?: number
+  overview?: string
+  seriesId?: string
+  isStopped?: boolean
+}): Promise<void> {
+  return request('/user-progress', {
+    method: 'POST',
+    body: JSON.stringify(body)
+  })
+}
+
 /** Jellyfin-native resume items — fallback when the VALOR progress store is empty. */
 export async function getJellyfinResume(): Promise<UnifiedMedia[]> {
   const res = await request<{ success: boolean; items: UnifiedMedia[] }>('/jellyfin/resume')

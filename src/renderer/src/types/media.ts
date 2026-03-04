@@ -58,6 +58,10 @@ export interface PlayJob {
   durationTicks?: number
   /** Poster image URL — used for Discord Rich Presence large image. */
   posterUrl?: string | null
+  /** Jellyfin series ID for TV episodes — used for progress reporting. */
+  seriesId?: string
+  /** TMDB ID — used for progress reporting. */
+  tmdbId?: number
 }
 
 export interface Season {
