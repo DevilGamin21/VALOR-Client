@@ -23,14 +23,13 @@ extraResources:
       - "*.dll"
 
 # ── Auto-update publish target ─────────────────────────────────────────────────
-# Files are hosted at this URL. After each build, upload:
-#   dist/VALOR-Setup-<version>.exe
-#   dist/latest.yml
-# to https://valor.dawn-star.co.uk/updates/
+# Publishes to GitHub Releases. Run `npm run release:win` to build + upload.
+# Requires GH_TOKEN env variable (GitHub PAT with repo scope).
 publish:
-  - provider: generic
-    url: https://valor.dawn-star.co.uk/updates/
-    channel: latest
+  - provider: github
+    owner: DevilGamin21
+    repo: VALOR-Client
+    releaseType: release
 
 # ── Windows ───────────────────────────────────────────────────────────────────
 win:

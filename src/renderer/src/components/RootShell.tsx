@@ -9,7 +9,7 @@ import {
   Shield,
   Search,
   LogOut,
-  BellRing,
+  ArrowDownToLine,
   Settings,
 } from 'lucide-react'
 import TitleBar from './TitleBar'
@@ -41,7 +41,13 @@ export default function RootShell() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [hasUpdate, setHasUpdate] = useState(false)
+  const [updateReady, setUpdateReady] = useState(false)
   const mainRef = useRef<HTMLDivElement>(null)
+
+  // Listen for update-downloaded so the sidebar icon can trigger install directly
+  useEffect(() => {
+    window.electronAPI.updates.onDownloaded(() => setUpdateReady(true))
+  }, [])
 
   // Clear Discord activity when the user disables RPC
   useEffect(() => {
@@ -138,13 +144,22 @@ export default function RootShell() {
             >
               <Settings className="w-5 h-5 flex-shrink-0" />
             </NavLink>
-            {hasUpdate && (
+            {updateReady && (
+              <button
+                onClick={() => window.electronAPI.updates.install()}
+                title="Update ready — click to restart and update"
+                className={`${iconBase} text-green-400 hover:text-green-300 hover:bg-green-500/15 animate-pulse`}
+              >
+                <ArrowDownToLine className="w-5 h-5 flex-shrink-0" />
+              </button>
+            )}
+            {hasUpdate && !updateReady && (
               <button
                 onClick={() => mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
-                title="Update available — click to scroll to banner"
+                title="Update downloading…"
                 className={`${iconBase} text-amber-400 hover:text-amber-300 hover:bg-amber-500/10`}
               >
-                <BellRing className="w-5 h-5 flex-shrink-0" />
+                <ArrowDownToLine className="w-5 h-5 flex-shrink-0 animate-bounce" />
               </button>
             )}
             <button

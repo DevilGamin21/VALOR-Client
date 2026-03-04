@@ -4,6 +4,8 @@ import { AnimatePresence } from 'framer-motion'
 import * as api from '@/services/api'
 import MediaRow from '@/components/MediaRow'
 import PlayModal from '@/components/PlayModal'
+import AnimeToggle from '@/components/AnimeToggle'
+import OnDemandToggle from '@/components/OnDemandToggle'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useSettings } from '@/contexts/SettingsContext'
 import type { UnifiedMedia, TrendingResponse } from '@/types/media'
@@ -13,6 +15,8 @@ export default function TV() {
   const { discordRPC } = useSettings()
   const [searchParams] = useSearchParams()
   const q = searchParams.get('q') ?? ''
+  const animeOnly = searchParams.get('anime') === '1'
+  const onDemandOnly = searchParams.get('ondemand') === '1'
 
   const [library, setLibrary] = useState<UnifiedMedia[]>([])
   const [trending, setTrending] = useState<TrendingResponse | null>(null)
@@ -81,20 +85,36 @@ export default function TV() {
         </div>
       ) : (
         <>
-          {library.length > 0 && (
-            <MediaRow title="Library" items={library} onPlay={setSelected} />
-          )}
-          {trending?.tv && trending.tv.length > 0 && (
+          <div className="px-6 mb-4 flex items-center gap-3">
+            <OnDemandToggle />
+            <AnimeToggle />
+          </div>
+          {(() => {
+            let filtered = library
+            if (animeOnly) filtered = filtered.filter((i) => i.isAnime)
+            if (onDemandOnly) filtered = filtered.filter((i) => i.onDemand)
+            const title = animeOnly ? 'Anime Shows' : onDemandOnly ? 'On Demand Shows' : 'Library'
+            return filtered.length > 0 ? (
+              <MediaRow title={title} items={filtered} onPlay={setSelected} />
+            ) : null
+          })()}
+          {!animeOnly && !onDemandOnly && trending?.tv && trending.tv.length > 0 && (
             <MediaRow title="Trending" items={trending.tv} onPlay={setSelected} />
           )}
-          {categories?.topRatedTv && categories.topRatedTv.length > 0 && (
+          {!animeOnly && !onDemandOnly && categories?.topRatedTv && categories.topRatedTv.length > 0 && (
             <MediaRow title="Top Rated" items={categories.topRatedTv} onPlay={setSelected} />
           )}
-          {categories?.sciFiTv && categories.sciFiTv.length > 0 && (
+          {!animeOnly && !onDemandOnly && categories?.sciFiTv && categories.sciFiTv.length > 0 && (
             <MediaRow title="Sci-Fi & Fantasy" items={categories.sciFiTv} onPlay={setSelected} />
           )}
           {library.length === 0 && !trending?.tv?.length && !categories && (
             <p className="px-6 text-white/40 text-sm">No TV shows available.</p>
+          )}
+          {animeOnly && library.filter((i) => i.isAnime).length === 0 && (
+            <p className="px-6 text-white/40 text-sm">No anime shows found in library.</p>
+          )}
+          {onDemandOnly && !animeOnly && library.filter((i) => i.onDemand).length === 0 && (
+            <p className="px-6 text-white/40 text-sm">No on demand shows found.</p>
           )}
         </>
       )}

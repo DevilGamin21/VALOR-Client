@@ -12,6 +12,7 @@ export default function MovieCard({ item, onPlay }: Props) {
   const { ids, toggle } = useWatchlist()
   const inWatchlist = ids.has(item.id)
 
+  const watched = item.playedPercentage != null && item.playedPercentage > 90
   const progress =
     item.playedPercentage && item.playedPercentage >= 5 && item.playedPercentage < 90
       ? item.playedPercentage
@@ -77,12 +78,25 @@ export default function MovieCard({ item, onPlay }: Props) {
           )}
         </button>
 
-        {/* On demand badge */}
-        {item.onDemand && (
-          <span className="absolute bottom-2 left-2 z-10 text-[9px] font-bold
-                           bg-white text-black px-1.5 py-0.5 rounded uppercase tracking-wide">
-            On Demand
-          </span>
+        {/* Bottom-left badges */}
+        {(watched || item.onDemand || item.isAnime) && (
+          <div className="absolute bottom-2 left-2 z-10 flex flex-col gap-1">
+            {watched && (
+              <span className="text-[9px] font-bold bg-emerald-500/90 text-white px-1.5 py-0.5 rounded uppercase tracking-wide">
+                Watched
+              </span>
+            )}
+            {item.onDemand && (
+              <span className="text-[9px] font-bold bg-white text-black px-1.5 py-0.5 rounded uppercase tracking-wide">
+                On Demand
+              </span>
+            )}
+            {item.isAnime && (
+              <span className="text-[9px] font-bold bg-purple-500 text-white px-1.5 py-0.5 rounded uppercase tracking-wide">
+                Anime
+              </span>
+            )}
+          </div>
         )}
       </div>
 

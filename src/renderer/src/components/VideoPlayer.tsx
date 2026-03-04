@@ -122,6 +122,11 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   const [showEpisodePanel, setShowEpisodePanel] = useState(false)
   const [localEpId, setLocalEpId] = useState(currentEpisodeId)
 
+  // Up Next auto-play
+  const [upNextVisible, setUpNextVisible] = useState(false)
+  const [upNextDismissed, setUpNextDismissed] = useState(false)
+  const upNextDismissedRef = useRef(false)
+
   // OpenSubtitles search
   const [osSearchOpen, setOsSearchOpen] = useState(false)
   const [osQuery, setOsQuery] = useState('')
@@ -155,6 +160,14 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   // Subtitle rendering
   const [vttCues, setVttCues] = useState<VttCue[]>([])
   const [activeCue, setActiveCue] = useState<string | null>(null)
+
+  // ─── Derived: next episode in list ─────────────────────────────────────────
+  const nextEpisode = (() => {
+    if (job.type !== 'tv' || episodeList.length === 0) return null
+    const idx = episodeList.findIndex((ep) => ep.jellyfinId === localEpId)
+    if (idx === -1 || idx >= episodeList.length - 1) return null
+    return episodeList[idx + 1]
+  })()
 
   // ─── Load HLS source ────────────────────────────────────────────────────────
 
@@ -414,6 +427,22 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       )
       setActiveCue(cue?.text ?? null)
     }
+
+    // Up Next trigger — 2 min before end for TV episodes
+    if (nextEpisode && autoplayNext && !upNextDismissedRef.current) {
+      const durSecs = isFinite(video.duration) && video.duration > 0
+        ? video.duration
+        : (job.durationTicks ?? 0) / 10_000_000
+      if (durSecs > 0) {
+        const remaining = durSecs - video.currentTime
+        if (remaining <= 120 && remaining > 0) {
+          if (!upNextVisible) setUpNextVisible(true)
+        } else if (upNextVisible) {
+          // User seeked back past threshold
+          setUpNextVisible(false)
+        }
+      }
+    }
   }
 
   function onDurationChange() {
@@ -452,6 +481,12 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       setTimeout(() => window.electronAPI.system.sleep().catch(() => {}), 800)
       return
     }
+    // Up Next auto-advance (if not dismissed)
+    if (nextEpisode && autoplayNext && !upNextDismissedRef.current) {
+      switchEpisode(nextEpisode)
+      return
+    }
+    // Legacy fallback
     if (!autoplayNext || episodeList.length === 0) return
     const currentIdx = episodeList.findIndex((ep) => ep.jellyfinId === localEpId)
     if (currentIdx === -1 || currentIdx >= episodeList.length - 1) return
@@ -607,6 +642,11 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   }
 
   async function switchEpisode(ep: EpisodeInfo) {
+    // Reset Up Next state
+    setUpNextVisible(false)
+    setUpNextDismissed(false)
+    upNextDismissedRef.current = false
+
     setShowEpisodePanel(false)
     setBuffering(true)
     setLocalEpId(ep.jellyfinId)
@@ -808,6 +848,56 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         </div>
       )}
 
+      {/* Up Next overlay */}
+      {upNextVisible && nextEpisode && (
+        <motion.div
+          initial={{ opacity: 0, x: 40 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="absolute bottom-24 right-6 z-50 w-72 bg-black/90 backdrop-blur-md
+                     rounded-xl border border-white/10 p-4 shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between mb-2">
+            <span className="text-white/50 text-xs font-semibold uppercase tracking-wider">
+              Up Next
+            </span>
+            <button
+              onClick={() => {
+                upNextDismissedRef.current = true
+                setUpNextDismissed(true)
+                setUpNextVisible(false)
+              }}
+              className="text-white/40 hover:text-white transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <p className="text-white text-sm font-medium truncate">{nextEpisode.title}</p>
+          <p className="text-white/40 text-xs mt-0.5">
+            S{String(nextEpisode.seasonNumber).padStart(2, '0')}E{String(nextEpisode.episodeNumber).padStart(2, '0')}
+          </p>
+          <div className="flex items-center gap-3 mt-3">
+            <button
+              onClick={() => switchEpisode(nextEpisode)}
+              className="flex-1 px-3 py-1.5 bg-white text-black text-xs font-semibold
+                         rounded-lg hover:bg-white/90 transition-colors"
+            >
+              Play Now
+            </button>
+            <span className="text-white/30 text-xs tabular-nums">
+              {(() => {
+                const video = videoRef.current
+                const durSecs = video && isFinite(video.duration) && video.duration > 0
+                  ? video.duration
+                  : (job.durationTicks ?? 0) / 10_000_000
+                const remaining = Math.max(0, Math.ceil(durSecs - currentTime))
+                return `${remaining}s`
+              })()}
+            </span>
+          </div>
+        </motion.div>
+      )}
+
       {/* Subtitle cue overlay */}
       {activeCue && (
         <div className="absolute bottom-24 left-0 right-0 flex justify-center pointer-events-none px-8">
@@ -957,41 +1047,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
           </div>
 
           <div className="max-h-[26rem] overflow-y-auto">
-            {/* Embedded tracks */}
-            <div className="p-2">
-              <button
-                onClick={() => { switchSubtitle(null); setShowSubtitlePanel(false) }}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${
-                  activeSub === null && activeOsSubId === null
-                    ? 'bg-red-600/20 text-white'
-                    : 'text-white/60 hover:bg-white/8 hover:text-white'
-                }`}
-              >
-                Off
-              </button>
-              {job.subtitleTracks.map((t) => (
-                <button
-                  key={t.index}
-                  onClick={() => { switchSubtitle(t); setShowSubtitlePanel(false) }}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition ${
-                    activeSub === t.index
-                      ? 'bg-red-600/20 text-white'
-                      : 'text-white/60 hover:bg-white/8 hover:text-white'
-                  }`}
-                >
-                  <span>{t.label || t.language}</span>
-                  {t.isImageBased && (
-                    <span className="text-[9px] bg-yellow-600/30 text-yellow-400 px-1 rounded">PGS</span>
-                  )}
-                </button>
-              ))}
-              {job.subtitleTracks.length === 0 && (
-                <p className="px-3 py-2 text-xs text-white/30">No embedded tracks</p>
-              )}
-            </div>
-
-            {/* OpenSubtitles search */}
-            <div className="border-t border-dark-border" />
+            {/* OpenSubtitles search — at the top for quick access */}
             <div className="p-2">
               <button
                 onClick={() => setOsSearchOpen((v) => !v)}
@@ -1071,6 +1127,40 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
                     </button>
                   ))}
                 </div>
+              )}
+            </div>
+
+            {/* Embedded tracks */}
+            <div className="border-t border-dark-border" />
+            <div className="p-2">
+              <button
+                onClick={() => { switchSubtitle(null); setShowSubtitlePanel(false) }}
+                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${
+                  activeSub === null && activeOsSubId === null
+                    ? 'bg-red-600/20 text-white'
+                    : 'text-white/60 hover:bg-white/8 hover:text-white'
+                }`}
+              >
+                Off
+              </button>
+              {job.subtitleTracks.map((t) => (
+                <button
+                  key={t.index}
+                  onClick={() => { switchSubtitle(t); setShowSubtitlePanel(false) }}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition ${
+                    activeSub === t.index
+                      ? 'bg-red-600/20 text-white'
+                      : 'text-white/60 hover:bg-white/8 hover:text-white'
+                  }`}
+                >
+                  <span>{t.label || t.language}</span>
+                  {t.isImageBased && (
+                    <span className="text-[9px] bg-yellow-600/30 text-yellow-400 px-1 rounded">PGS</span>
+                  )}
+                </button>
+              ))}
+              {job.subtitleTracks.length === 0 && (
+                <p className="px-3 py-2 text-xs text-white/30">No embedded tracks</p>
               )}
             </div>
           </div>

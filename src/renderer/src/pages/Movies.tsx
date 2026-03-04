@@ -4,6 +4,8 @@ import { AnimatePresence } from 'framer-motion'
 import * as api from '@/services/api'
 import MediaRow from '@/components/MediaRow'
 import PlayModal from '@/components/PlayModal'
+import AnimeToggle from '@/components/AnimeToggle'
+import OnDemandToggle from '@/components/OnDemandToggle'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useSettings } from '@/contexts/SettingsContext'
 import type { UnifiedMedia, TrendingResponse } from '@/types/media'
@@ -13,6 +15,8 @@ export default function Movies() {
   const { discordRPC } = useSettings()
   const [searchParams] = useSearchParams()
   const q = searchParams.get('q') ?? ''
+  const animeOnly = searchParams.get('anime') === '1'
+  const onDemandOnly = searchParams.get('ondemand') === '1'
 
   const [library, setLibrary] = useState<UnifiedMedia[]>([])
   const [trending, setTrending] = useState<TrendingResponse | null>(null)
@@ -81,23 +85,39 @@ export default function Movies() {
         </div>
       ) : (
         <>
-          {library.length > 0 && (
-            <MediaRow title="Library" items={library} onPlay={setSelected} />
-          )}
-          {trending?.movies && trending.movies.length > 0 && (
+          <div className="px-6 mb-4 flex items-center gap-3">
+            <OnDemandToggle />
+            <AnimeToggle />
+          </div>
+          {(() => {
+            let filtered = library
+            if (animeOnly) filtered = filtered.filter((i) => i.isAnime)
+            if (onDemandOnly) filtered = filtered.filter((i) => i.onDemand)
+            const title = animeOnly ? 'Anime Movies' : onDemandOnly ? 'On Demand Movies' : 'Library'
+            return filtered.length > 0 ? (
+              <MediaRow title={title} items={filtered} onPlay={setSelected} />
+            ) : null
+          })()}
+          {!animeOnly && !onDemandOnly && trending?.movies && trending.movies.length > 0 && (
             <MediaRow title="Trending" items={trending.movies} onPlay={setSelected} />
           )}
-          {categories?.topRatedMovies && categories.topRatedMovies.length > 0 && (
+          {!animeOnly && !onDemandOnly && categories?.topRatedMovies && categories.topRatedMovies.length > 0 && (
             <MediaRow title="Top Rated" items={categories.topRatedMovies} onPlay={setSelected} />
           )}
-          {categories?.actionMovies && categories.actionMovies.length > 0 && (
+          {!animeOnly && !onDemandOnly && categories?.actionMovies && categories.actionMovies.length > 0 && (
             <MediaRow title="Action" items={categories.actionMovies} onPlay={setSelected} />
           )}
-          {categories?.comedyMovies && categories.comedyMovies.length > 0 && (
+          {!animeOnly && !onDemandOnly && categories?.comedyMovies && categories.comedyMovies.length > 0 && (
             <MediaRow title="Comedy" items={categories.comedyMovies} onPlay={setSelected} />
           )}
           {library.length === 0 && !trending?.movies?.length && !categories && (
             <p className="px-6 text-white/40 text-sm">No movies available.</p>
+          )}
+          {animeOnly && library.filter((i) => i.isAnime).length === 0 && (
+            <p className="px-6 text-white/40 text-sm">No anime movies found in library.</p>
+          )}
+          {onDemandOnly && !animeOnly && library.filter((i) => i.onDemand).length === 0 && (
+            <p className="px-6 text-white/40 text-sm">No on demand movies found.</p>
           )}
         </>
       )}

@@ -170,11 +170,11 @@ run(`npx electron-builder --win ${publishFlag}`, 'Installer packaged')
 
 // ── Step 5 (release only): Upload confirmation ───────────────────────────────
 if (release) {
-  step(5, TOTAL, 'Upload complete')
+  step(5, TOTAL, 'Published to GitHub Releases')
   const v = readPkg().version
-  ok(`Installer    → https://valor.dawn-star.co.uk/updates/VALOR-Setup-${v}.exe`)
-  ok(`Update feed  → https://valor.dawn-star.co.uk/updates/latest.yml`)
-  warn('Make sure both files are publicly accessible at that URL.')
+  ok(`GitHub Release → https://github.com/DevilGamin21/VALOR-Client/releases/tag/v${v}`)
+  ok(`Installer      → VALOR-Setup-${v}.exe (attached to release)`)
+  ok(`Update feed    → latest.yml (attached to release)`)
 }
 
 // ─── Summary ──────────────────────────────────────────────────────────────────

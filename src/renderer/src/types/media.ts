@@ -13,6 +13,8 @@ export interface UnifiedMedia {
   positionTicks?: number
   /** True for items from premium Jellyfin libraries (z-prefixed). */
   premiumOnly?: boolean
+  /** True when the item is from an anime library. */
+  isAnime?: boolean
 }
 
 export interface AudioTrack {

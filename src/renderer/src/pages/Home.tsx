@@ -7,6 +7,8 @@ import MediaRow from '@/components/MediaRow'
 import MovieCard from '@/components/MovieCard'
 import PlayModal from '@/components/PlayModal'
 import DynamicHero from '@/components/DynamicHero'
+import AnimeToggle from '@/components/AnimeToggle'
+import OnDemandToggle from '@/components/OnDemandToggle'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useSettings } from '@/contexts/SettingsContext'
 import type { UnifiedMedia, TrendingResponse, ProgressItem } from '@/types/media'
@@ -33,6 +35,8 @@ export default function Home() {
   const wasOpenRef = useRef(false)
   const [searchParams] = useSearchParams()
   const query = searchParams.get('q') || ''
+  const animeOnly = searchParams.get('anime') === '1'
+  const onDemandOnly = searchParams.get('ondemand') === '1'
 
   const [trending, setTrending] = useState<TrendingResponse | null>(null)
   const [continueWatching, setContinueWatching] = useState<UnifiedMedia[]>([])
@@ -160,48 +164,69 @@ export default function Home() {
     )
   }
 
+  // ── Filter helpers ───────────────────────────────────────────────────────
+  const filterItems = (items: UnifiedMedia[]) => {
+    let filtered = items
+    if (animeOnly) filtered = filtered.filter((i) => i.isAnime)
+    if (onDemandOnly) filtered = filtered.filter((i) => i.onDemand)
+    return filtered
+  }
+
   // ── Normal home view ──────────────────────────────────────────────────────
   return (
     <div className="pb-8">
-      <DynamicHero items={heroItems} onSelect={setSelected} />
+      {!animeOnly && !onDemandOnly && <DynamicHero items={heroItems} onSelect={setSelected} />}
 
-      {continueWatching.length > 0 && (
-        <MediaRow title="Continue Watching" items={continueWatching} onPlay={setSelected} />
+      <div className="px-6 pt-4 pb-2 flex items-center gap-3">
+        <OnDemandToggle />
+        <AnimeToggle />
+      </div>
+
+      {filterItems(continueWatching).length > 0 && (
+        <MediaRow title="Continue Watching" items={filterItems(continueWatching)} onPlay={setSelected} />
       )}
 
-      {recentMovies.length > 0 && (
-        <MediaRow title="Recently Added Movies" items={recentMovies} onPlay={setSelected} />
+      {filterItems(recentMovies).length > 0 && (
+        <MediaRow
+          title={animeOnly ? 'Anime Movies' : 'Recently Added Movies'}
+          items={filterItems(recentMovies)}
+          onPlay={setSelected}
+        />
       )}
 
-      {recentTV.length > 0 && (
-        <MediaRow title="Recently Added TV" items={recentTV} onPlay={setSelected} />
+      {filterItems(recentTV).length > 0 && (
+        <MediaRow
+          title={animeOnly ? 'Anime Shows' : 'Recently Added TV'}
+          items={filterItems(recentTV)}
+          onPlay={setSelected}
+        />
       )}
 
-      {trending?.movies && trending.movies.length > 0 && (
+      {!animeOnly && !onDemandOnly && trending?.movies && trending.movies.length > 0 && (
         <MediaRow title="Trending Movies" items={trending.movies} onPlay={setSelected} />
       )}
 
-      {trending?.tv && trending.tv.length > 0 && (
+      {!animeOnly && !onDemandOnly && trending?.tv && trending.tv.length > 0 && (
         <MediaRow title="Trending TV" items={trending.tv} onPlay={setSelected} />
       )}
 
-      {categories?.topRatedMovies && categories.topRatedMovies.length > 0 && (
+      {!animeOnly && !onDemandOnly && categories?.topRatedMovies && categories.topRatedMovies.length > 0 && (
         <MediaRow title="Top Rated Movies" items={categories.topRatedMovies} onPlay={setSelected} />
       )}
 
-      {categories?.actionMovies && categories.actionMovies.length > 0 && (
+      {!animeOnly && !onDemandOnly && categories?.actionMovies && categories.actionMovies.length > 0 && (
         <MediaRow title="Action Movies" items={categories.actionMovies} onPlay={setSelected} />
       )}
 
-      {categories?.comedyMovies && categories.comedyMovies.length > 0 && (
+      {!animeOnly && !onDemandOnly && categories?.comedyMovies && categories.comedyMovies.length > 0 && (
         <MediaRow title="Comedy Movies" items={categories.comedyMovies} onPlay={setSelected} />
       )}
 
-      {categories?.topRatedTv && categories.topRatedTv.length > 0 && (
+      {!animeOnly && !onDemandOnly && categories?.topRatedTv && categories.topRatedTv.length > 0 && (
         <MediaRow title="Top Rated TV" items={categories.topRatedTv} onPlay={setSelected} />
       )}
 
-      {categories?.sciFiTv && categories.sciFiTv.length > 0 && (
+      {!animeOnly && !onDemandOnly && categories?.sciFiTv && categories.sciFiTv.length > 0 && (
         <MediaRow title="Sci-Fi & Fantasy" items={categories.sciFiTv} onPlay={setSelected} />
       )}
 
