@@ -162,6 +162,19 @@ export async function getItemProgress(
   return request(`/jellyfin/item-progress/${itemId}`)
 }
 
+// ─── Jellyfin item lookup ─────────────────────────────────────────────────────
+
+/** Resolve a Jellyfin item to its series-level info.
+ *  For episodes, returns the parent series ID + tmdbId. */
+export async function lookupJellyfinItem(itemId: string): Promise<{
+  tmdbId: number | null
+  seriesId: string | null
+  type: 'tv' | 'movie'
+  overview: string | null
+}> {
+  return request(`/jellyfin/item-tmdb/${encodeURIComponent(itemId)}`)
+}
+
 // ─── TV / seasons ─────────────────────────────────────────────────────────────
 
 export async function getSeasons(itemId: string): Promise<Season[]> {
@@ -250,6 +263,7 @@ export async function getJellyfinResume(): Promise<UnifiedMedia[]> {
     ...item,
     source: 'jellyfin' as const,
     onDemand: true,
+    seriesId: (item as Record<string, unknown>).seriesId as string | undefined,
   }))
 }
 

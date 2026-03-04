@@ -15,6 +15,8 @@ export interface UnifiedMedia {
   premiumOnly?: boolean
   /** True when the item is from an anime library. */
   isAnime?: boolean
+  /** Jellyfin series ID — set on TV episodes from Continue Watching / Resume. */
+  seriesId?: string
 }
 
 export interface AudioTrack {
@@ -99,6 +101,7 @@ export interface ProgressItem {
   type: string
   year: number | null
   tmdbId?: number
+  seriesId?: string
   updatedAt: string
 }
 

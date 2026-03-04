@@ -25,7 +25,8 @@ function mapContinueWatching(cw: ProgressItem[]): UnifiedMedia[] {
     tmdbId: p.tmdbId,
     onDemand: true,
     source: 'jellyfin' as const,
-    playedPercentage: p.percent
+    playedPercentage: p.percent,
+    seriesId: p.seriesId,
   }))
 }
 
@@ -49,6 +50,11 @@ export default function Home() {
   // Search
   const [searchResults, setSearchResults] = useState<UnifiedMedia[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
+
+  // Check for updates every time the Home page mounts
+  useEffect(() => {
+    window.electronAPI.updates.check()
+  }, [])
 
   useEffect(() => {
     if (isOpen || !discordRPC) return

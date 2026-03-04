@@ -79,6 +79,10 @@ export default function PlayModal({ item, onClose }: Props) {
     }).catch(() => {})
   }, [item])
 
+  // Resolved Jellyfin series ID — populated by the lookup below so episodes
+  // can reference the correct ID even when item.id is an episode ID.
+  const [resolvedSeriesId, setResolvedSeriesId] = useState<string | null>(null)
+
   // ── Load seasons for all TV shows ────────────────────────────────────────
   useEffect(() => {
     if (item.type !== 'tv') return
@@ -87,26 +91,44 @@ export default function PlayModal({ item, onClose }: Props) {
     setJellyfinSeasons([])
     setSelectedSeason(null)
     setEpisodes([])
+    setResolvedSeriesId(null)
 
-    const p1 = item.tmdbId
-      ? api.getTmdbSeasons(item.tmdbId).catch(() => [] as api.TmdbSeason[])
-      : Promise.resolve([] as api.TmdbSeason[])
+    async function loadSeasons() {
+      // Resolve the correct Jellyfin series ID via lookup (matches website behaviour).
+      // For episodes (Continue Watching), this returns the parent series ID.
+      let seriesJfId = item.seriesId || String(item.id)
+      let tmdbId = item.tmdbId
+      if (item.onDemand) {
+        try {
+          const lookup = await api.lookupJellyfinItem(String(item.id))
+          if (lookup.seriesId) seriesJfId = lookup.seriesId
+          if (lookup.tmdbId) tmdbId = lookup.tmdbId
+        } catch {
+          // best-effort — fall back to item.id
+        }
+      }
+      setResolvedSeriesId(seriesJfId)
 
-    const p2 = item.onDemand
-      ? api.getSeasons(String(item.id)).catch(() => [] as Season[])
-      : Promise.resolve([] as Season[])
+      const [tmdb, jf] = await Promise.all([
+        tmdbId
+          ? api.getTmdbSeasons(tmdbId).catch(() => [] as api.TmdbSeason[])
+          : Promise.resolve([] as api.TmdbSeason[]),
+        item.onDemand
+          ? api.getSeasons(seriesJfId).catch(() => [] as Season[])
+          : Promise.resolve([] as Season[]),
+      ])
 
-    Promise.all([p1, p2]).then(([tmdb, jf]) => {
       setTmdbSeasons(tmdb)
       setJellyfinSeasons(jf)
 
-      // Pick the first season number to display
       const firstSeason =
         tmdb.length > 0 ? tmdb[0].seasonNumber :
         jf.length > 0 ? jf[0].seasonNumber :
         null
       setSelectedSeason(firstSeason)
-    }).finally(() => setLoadingSeasons(false))
+    }
+
+    loadSeasons().finally(() => setLoadingSeasons(false))
   }, [item])
 
   // ── Load episodes when season or Jellyfin seasons change ─────────────────
@@ -126,7 +148,8 @@ export default function PlayModal({ item, onClose }: Props) {
           if (!item.onDemand || !jellyfinSeasons.length) return Promise.resolve([] as Episode[])
           const jSeason = jellyfinSeasons.find((s) => s.seasonNumber === selectedSeason)
           if (!jSeason) return Promise.resolve([] as Episode[])
-          return api.getEpisodes(String(item.id), jSeason.id).catch(() => [] as Episode[])
+          const epSeriesId = resolvedSeriesId || item.seriesId || String(item.id)
+          return api.getEpisodes(epSeriesId, jSeason.id).catch(() => [] as Episode[])
         })(),
       ])
 
@@ -164,7 +187,7 @@ export default function PlayModal({ item, onClose }: Props) {
       .then(setEpisodes)
       .catch(() => setEpisodes([]))
       .finally(() => setLoadingEpisodes(false))
-  }, [item, selectedSeason, jellyfinSeasons])
+  }, [item, selectedSeason, jellyfinSeasons, resolvedSeriesId])
 
   // ── Digital release check (non-library movies) ───────────────────────────
   useEffect(() => {
