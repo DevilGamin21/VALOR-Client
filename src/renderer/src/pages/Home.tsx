@@ -14,21 +14,30 @@ import { useSettings } from '@/contexts/SettingsContext'
 import type { UnifiedMedia, TrendingResponse, ProgressItem } from '@/types/media'
 
 function mapContinueWatching(cw: ProgressItem[]): UnifiedMedia[] {
-  return cw.map((p) => ({
-    id: p.mediaId,
-    title: p.title,
-    type: p.type as 'movie' | 'tv',
-    posterUrl: p.posterUrl,
-    backdropUrl: null,
-    overview: '',
-    year: p.year,
-    tmdbId: p.tmdbId,
-    onDemand: true,
-    source: 'jellyfin' as const,
-    playedPercentage: p.percent,
-    positionTicks: p.positionTicks,
-    seriesId: p.seriesId,
-  }))
+  const seen = new Set<string>()
+  const items: UnifiedMedia[] = []
+  for (const p of cw) {
+    // For TV: use seriesId as dedup key (backend keys by series, but guard against stale episode entries)
+    const dedup = (p.type === 'tv' && p.seriesId) ? p.seriesId : p.mediaId
+    if (seen.has(dedup)) continue
+    seen.add(dedup)
+    items.push({
+      id: (p.type === 'tv' && p.seriesId) ? p.seriesId : p.mediaId,
+      title: p.title,
+      type: p.type as 'movie' | 'tv',
+      posterUrl: p.posterUrl,
+      backdropUrl: null,
+      overview: '',
+      year: p.year,
+      tmdbId: p.tmdbId,
+      onDemand: true,
+      source: 'jellyfin' as const,
+      playedPercentage: p.percent,
+      positionTicks: p.positionTicks,
+      seriesId: p.seriesId,
+    })
+  }
+  return items
 }
 
 export default function Home() {

@@ -101,6 +101,7 @@ export interface User {
 
 export interface ProgressItem {
   mediaId: string
+  resumeMediaId?: string | null
   positionTicks: number
   durationTicks: number
   percent: number

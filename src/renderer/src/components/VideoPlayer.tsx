@@ -626,7 +626,8 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       const text = await api.fetchText(subPath)
       setVttCues(parseVttCues(text))
     } catch {
-      setError('Failed to load subtitles')
+      // Don't block playback — just deactivate the subtitle track
+      setActiveSub(null)
     }
   }
 
