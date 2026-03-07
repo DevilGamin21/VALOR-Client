@@ -94,6 +94,8 @@ export interface User {
   avatarUrl?: string
   tier?: 'trial' | 'subscription' | 'lifetime' | 'free'
   subscriptionExpiresAt?: string | null
+  trialStartedAt?: string | null
+  jellyfinUserId?: string | null
   isPremium?: boolean
 }
 

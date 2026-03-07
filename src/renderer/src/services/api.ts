@@ -33,6 +33,8 @@ function normalizeUser(raw: Record<string, unknown>): User {
     avatarUrl: resolveAvatarUrl(raw.avatarUrl as string) ?? undefined,
     tier: (raw.tier as User['tier']) ?? undefined,
     subscriptionExpiresAt: (raw.subscriptionExpiresAt as string | null | undefined) ?? undefined,
+    trialStartedAt: (raw.trialStartedAt as string | null | undefined) ?? undefined,
+    jellyfinUserId: (raw.jellyfinUserId as string | null | undefined) ?? undefined,
     isPremium: (raw.isPremium as boolean) ?? false,
   }
 }
@@ -491,11 +493,19 @@ export async function rivenRetry(body: { tmdbId: number; type: 'movie' | 'tv' })
 
 export type UserTier = 'trial' | 'subscription' | 'lifetime' | 'free'
 
-export async function patchUserTier(id: string, tier: UserTier): Promise<void> {
+export async function patchUserTier(id: string, tier: UserTier, subscriptionExpiresAt?: string | null): Promise<void> {
+  const body: Record<string, unknown> = { tier }
+  if (tier === 'subscription' && subscriptionExpiresAt) {
+    body.subscriptionExpiresAt = subscriptionExpiresAt
+  }
   return request(`/admin/users/${id}/tier`, {
     method: 'PATCH',
-    body: JSON.stringify({ tier })
+    body: JSON.stringify(body)
   })
+}
+
+export async function syncUserAccess(id: string): Promise<void> {
+  return request(`/admin/users/${id}/sync-access`, { method: 'POST' })
 }
 
 export async function scanLibrary(): Promise<void> {
@@ -510,4 +520,97 @@ export async function requestMedia(item: {
   type: 'movie' | 'tv'
 }): Promise<void> {
   return request('/request', { method: 'POST', body: JSON.stringify(item) })
+}
+
+// ─── Pruna ────────────────────────────────────────────────────────────────────
+
+export async function getPrunaDashboard(): Promise<Record<string, unknown>> {
+  return request('/pruna/dashboard')
+}
+
+export async function prunaRetry(prunaId: string): Promise<void> {
+  return request('/pruna/dashboard/retry', { method: 'POST', body: JSON.stringify({ prunaId }) })
+}
+
+export async function prunaRemove(prunaId: string): Promise<void> {
+  return request(`/pruna/dashboard/item/${encodeURIComponent(prunaId)}`, { method: 'DELETE' })
+}
+
+export async function getPrunaQueue(): Promise<Record<string, unknown>> {
+  return request('/pruna/queue')
+}
+
+export async function prunaPromote(prunaId: string): Promise<void> {
+  return request('/pruna/queue/promote', { method: 'POST', body: JSON.stringify({ prunaId }) })
+}
+
+export async function prunaQueueConfig(maxActive: number): Promise<void> {
+  return request('/pruna/queue/config', { method: 'POST', body: JSON.stringify({ maxActive }) })
+}
+
+export async function getPrunaLibrary(): Promise<Record<string, unknown>> {
+  return request('/pruna/library')
+}
+
+export async function prunaDeleteLibraryItem(itemId: string): Promise<void> {
+  return request(`/pruna/library/${encodeURIComponent(itemId)}`, { method: 'DELETE' })
+}
+
+export async function getPrunaLibraryEpisodes(itemId: string, tmdbId?: number): Promise<Record<string, unknown>> {
+  const qs = tmdbId ? `?tmdbId=${tmdbId}` : ''
+  return request(`/pruna/library/${encodeURIComponent(itemId)}/episodes${qs}`)
+}
+
+export async function prunaSearchEpisodes(itemId: string, body: Record<string, unknown>): Promise<void> {
+  return request(`/pruna/library/${encodeURIComponent(itemId)}/episodes`, {
+    method: 'POST', body: JSON.stringify(body)
+  })
+}
+
+export async function prunaSearchTorrents(itemId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return request(`/pruna/library/${encodeURIComponent(itemId)}/episodes/torrents`, {
+    method: 'POST', body: JSON.stringify(body)
+  })
+}
+
+export async function prunaInstallMagnet(itemId: string, body: Record<string, unknown>): Promise<void> {
+  return request(`/pruna/library/${encodeURIComponent(itemId)}/episodes/install-magnet`, {
+    method: 'POST', body: JSON.stringify(body)
+  })
+}
+
+export async function prunaDeleteEpisode(itemId: string, epKey: string): Promise<void> {
+  return request(`/pruna/library/${encodeURIComponent(itemId)}/episode/${encodeURIComponent(epKey)}`, { method: 'DELETE' })
+}
+
+export async function prunaRefetchEpisode(itemId: string, epKey: string, mode: string): Promise<void> {
+  return request(`/pruna/library/${encodeURIComponent(itemId)}/episode/${encodeURIComponent(epKey)}`, {
+    method: 'POST', body: JSON.stringify({ mode })
+  })
+}
+
+export async function getPrunaOngoing(): Promise<Record<string, unknown>> {
+  return request('/pruna/ongoing')
+}
+
+export async function prunaTrackOngoing(body: Record<string, unknown>): Promise<void> {
+  return request('/pruna/ongoing', { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function prunaRemoveOngoing(imdbId: string): Promise<void> {
+  return request(`/pruna/ongoing/${encodeURIComponent(imdbId)}`, { method: 'DELETE' })
+}
+
+export async function prunaToggleOngoing(imdbId: string, enabled: boolean): Promise<void> {
+  return request(`/pruna/ongoing/${encodeURIComponent(imdbId)}`, {
+    method: 'PATCH', body: JSON.stringify({ enabled })
+  })
+}
+
+export async function prunaCheckOngoing(): Promise<void> {
+  return request('/pruna/ongoing/check', { method: 'POST' })
+}
+
+export async function prunaClearFailed(): Promise<void> {
+  return request('/pruna/dashboard/clear-failed', { method: 'POST' })
 }

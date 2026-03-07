@@ -13,6 +13,7 @@ import TV from '@/pages/TV'
 import Watchlist from '@/pages/Watchlist'
 import Profile from '@/pages/Profile'
 import Admin from '@/pages/Admin'
+import Pruna from '@/pages/Pruna'
 import Settings from '@/pages/Settings'
 export default function App() {
   return (
@@ -39,6 +40,7 @@ export default function App() {
                   <Route path="watchlist" element={<Watchlist />} />
                   <Route path="profile" element={<Profile />} />
                   <Route path="admin" element={<Admin />} />
+                  <Route path="pruna" element={<Pruna />} />
                   <Route path="settings" element={<Settings />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/home" replace />} />
