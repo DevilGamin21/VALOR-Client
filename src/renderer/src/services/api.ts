@@ -469,24 +469,36 @@ export async function getHomeCategories(): Promise<HomeCategories> {
   }
 }
 
-// ─── Riven ────────────────────────────────────────────────────────────────────
+// ─── Pruna (content acquisition) ──────────────────────────────────────────────
 
-export interface RivenStatus {
+export interface PrunaStatus {
+  /** True only when state === 'Completed' (item fully installed in library) */
   installed: boolean
+  /** Pipeline state label, or null if item not in Pruna at all */
   state: string | null
-  rivenId: string | null
+  prunaId?: string | null
+  title?: string
+  progress?: number
+  error?: string | null
+  episodes?: number
 }
 
-export async function getRivenStatus(tmdbId: number, type: 'movie' | 'tv'): Promise<RivenStatus> {
-  return request(`/riven/status?tmdbId=${tmdbId}&type=${type}`)
+export async function getPrunaStatus(tmdbId: number, type: 'movie' | 'tv'): Promise<PrunaStatus> {
+  return request(`/pruna/status?tmdbId=${tmdbId}&type=${type}`)
 }
 
-export async function rivenInstall(body: { tmdbId: number; type: 'movie' | 'tv'; title: string }): Promise<void> {
-  return request('/riven/install', { method: 'POST', body: JSON.stringify(body) })
+export async function prunaInstall(body: {
+  tmdbId: number; type: 'movie' | 'tv'; title: string; year?: number | null; isAnime?: boolean
+}): Promise<{ success: boolean; prunaId: string; state: string }> {
+  return request('/pruna/install', { method: 'POST', body: JSON.stringify(body) })
 }
 
-export async function rivenRetry(body: { tmdbId: number; type: 'movie' | 'tv' }): Promise<void> {
-  return request('/riven/retry', { method: 'POST', body: JSON.stringify(body) })
+export async function prunaRetryByImdb(imdbId: string): Promise<void> {
+  return request('/pruna/retry', { method: 'POST', body: JSON.stringify({ imdbId }) })
+}
+
+export async function prunaRetryById(prunaId: string): Promise<void> {
+  return request('/pruna/retry', { method: 'POST', body: JSON.stringify({ prunaId }) })
 }
 
 // ─── Admin: tier management + library scan ────────────────────────────────────

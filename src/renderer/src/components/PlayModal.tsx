@@ -54,9 +54,9 @@ export default function PlayModal({ item, onClose }: Props) {
   // Resume prompt (TV episodes)
   const [resumeEp, setResumeEp] = useState<{ jellyfinId: string; ticks: number } | null>(null)
 
-  // Riven
-  const [rivenStatus, setRivenStatus] = useState<api.RivenStatus | null>(null)
-  const [rivenLoading, setRivenLoading] = useState(false)
+  // Pruna (content acquisition)
+  const [prunaStatus, setPrunaStatus] = useState<api.PrunaStatus | null>(null)
+  const [prunaLoading, setPrunaLoading] = useState(false)
 
   // Episode context menu — tracked with viewport position so the dropdown
   // can be rendered fixed (avoids overflow-hidden / overflow-y-auto clipping)
@@ -207,25 +207,25 @@ export default function PlayModal({ item, onClose }: Props) {
       .catch(() => setDigitalReleased(true))
   }, [item])
 
-  // ── Riven status load ────────────────────────────────────────────────────
+  // ── Pruna status load ────────────────────────────────────────────────────
   useEffect(() => {
     if (item.onDemand || !item.tmdbId) return
-    api.getRivenStatus(item.tmdbId, item.type)
-      .then(setRivenStatus)
-      .catch(() => {})
+    api.getPrunaStatus(item.tmdbId, item.type)
+      .then(setPrunaStatus)
+      .catch(() => setPrunaStatus({ installed: false, state: null }))
   }, [item])
 
-  // ── Riven status polling (while installing) ──────────────────────────────
+  // ── Pruna status polling (while in pipeline) ──────────────────────────────
   useEffect(() => {
-    if (!rivenStatus?.installed || rivenStatus.state === 'completed') return
+    if (!prunaStatus?.state || prunaStatus.installed) return
     if (!item.tmdbId) return
     const interval = setInterval(() => {
-      api.getRivenStatus(item.tmdbId!, item.type)
-        .then(setRivenStatus)
+      api.getPrunaStatus(item.tmdbId!, item.type)
+        .then(setPrunaStatus)
         .catch(() => {})
     }, 5000)
     return () => clearInterval(interval)
-  }, [rivenStatus?.installed, rivenStatus?.state, item])
+  }, [prunaStatus?.state, prunaStatus?.installed, item])
 
   // ── P2P polling ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -339,26 +339,34 @@ export default function PlayModal({ item, onClose }: Props) {
     }
   }
 
-  async function handleRivenInstall() {
+  async function handlePrunaInstall() {
     if (!item.tmdbId) return
-    setRivenLoading(true)
+    setPrunaLoading(true)
     try {
-      await api.rivenInstall({ tmdbId: item.tmdbId, type: item.type, title: item.title })
-      const status = await api.getRivenStatus(item.tmdbId, item.type)
-      setRivenStatus(status)
+      await api.prunaInstall({
+        tmdbId: item.tmdbId,
+        type: item.type,
+        title: item.title,
+        year: item.year,
+        isAnime: item.isAnime,
+      })
+      const status = await api.getPrunaStatus(item.tmdbId, item.type)
+      setPrunaStatus(status)
     } catch {
-      // ignore — Riven may not be configured
+      // ignore — Pruna may not be configured
     } finally {
-      setRivenLoading(false)
+      setPrunaLoading(false)
     }
   }
 
-  async function handleRivenRetry() {
-    if (!item.tmdbId) return
+  async function handlePrunaRetry() {
+    if (!prunaStatus?.prunaId) return
     try {
-      await api.rivenRetry({ tmdbId: item.tmdbId, type: item.type })
-      const status = await api.getRivenStatus(item.tmdbId, item.type)
-      setRivenStatus(status)
+      await api.prunaRetryById(prunaStatus.prunaId)
+      if (item.tmdbId) {
+        const status = await api.getPrunaStatus(item.tmdbId, item.type)
+        setPrunaStatus(status)
+      }
     } catch {
       // ignore
     }
@@ -601,31 +609,28 @@ export default function PlayModal({ item, onClose }: Props) {
             </div>
           )}
 
-          {/* Riven section (non-library items only) */}
-          {!item.onDemand && item.tmdbId && rivenStatus !== null && (() => {
-            const state = rivenStatus.state?.toLowerCase() ?? null
+          {/* Pruna section (non-library items only) */}
+          {!item.onDemand && item.tmdbId && (() => {
+            const state = prunaStatus?.state?.toLowerCase() ?? null
+            const inPipeline = state !== null
 
             // Derive label, colour scheme, and whether retry makes sense
             let label = ''
             let color: 'green' | 'blue' | 'amber' | 'red' = 'blue'
             let showRetry = false
 
-            if (rivenStatus.installed) {
+            if (inPipeline) {
               if (state === 'completed') {
                 label = 'Installed'
                 color = 'green'
-              } else if (state === 'partiallycompleted') {
-                label = 'Partially Installed'
-                color = 'blue'
-                showRetry = true
-              } else if (state === 'ongoing' || state === 'downloaded' || state === 'symlinked') {
-                label = 'In Progress'
-                color = 'blue'
-              } else if (state === 'indexed' || state === 'scraped' || state === 'requested') {
+              } else if (state === 'requested' || state === 'indexed') {
                 label = 'Queued'
                 color = 'blue'
+              } else if (state === 'scraped' || state === 'downloaded' || state === 'symlinked') {
+                label = 'In Progress'
+                color = 'blue'
               } else if (state === 'failed') {
-                label = 'Failed — Retry'
+                label = prunaStatus.error ? `Failed — ${prunaStatus.error}` : 'Failed'
                 color = 'red'
                 showRetry = true
               } else if (state === 'paused') {
@@ -648,7 +653,7 @@ export default function PlayModal({ item, onClose }: Props) {
 
             return (
               <div className="mb-4">
-                {rivenStatus.installed ? (
+                {inPipeline ? (
                   <div className={`flex items-center gap-3 p-3 rounded-lg ${c.bg} border ${c.border}`}>
                     <Download size={14} className={`${c.icon} flex-shrink-0`} />
                     <p className={`flex-1 text-sm font-medium ${c.text}`}>
@@ -656,7 +661,7 @@ export default function PlayModal({ item, onClose }: Props) {
                     </p>
                     {showRetry && (
                       <button
-                        onClick={handleRivenRetry}
+                        onClick={handlePrunaRetry}
                         className="text-xs text-white/50 hover:text-white px-2 py-1 rounded bg-white/10 transition flex-shrink-0"
                       >
                         Retry
@@ -665,13 +670,13 @@ export default function PlayModal({ item, onClose }: Props) {
                   </div>
                 ) : isPremium ? (
                   <button
-                    onClick={handleRivenInstall}
-                    disabled={rivenLoading}
+                    onClick={handlePrunaInstall}
+                    disabled={prunaLoading}
                     className="w-full flex items-center justify-center gap-2 py-2 rounded-lg
                                bg-emerald-800/30 hover:bg-emerald-800/50 border border-emerald-600/30
                                text-emerald-300 text-sm transition disabled:opacity-50"
                   >
-                    {rivenLoading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    {prunaLoading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                     Install
                   </button>
                 ) : (
