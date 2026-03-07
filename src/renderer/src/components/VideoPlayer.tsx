@@ -259,10 +259,8 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       )
       if (match) {
         setActiveSub(match.index)
-        const vttUrl = match.vttUrl
-          ? `${API_BASE}${match.vttUrl}`
-          : `${API_BASE}/jellyfin/subtitle-vtt/${job.itemId}/${match.index}`
-        fetch(vttUrl).then((r) => r.text()).then((text) => setVttCues(parseVttCues(text))).catch(() => {})
+        const subPath = `/jellyfin/subtitle-vtt/${job.itemId}/${match.index}`
+        api.fetchText(subPath).then((text) => setVttCues(parseVttCues(text))).catch(() => {})
       }
     }
 
@@ -573,10 +571,24 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       const newJob = await api.startPlayJob({
         itemId: job.itemId,
         audioStreamIndex: track.index,
-        maxBitrate: QUALITY_PRESETS[activeQuality].maxBitrate || undefined,
+        directPlay: settingsDirectPlay,
+        maxBitrate: settingsDirectPlay ? undefined : (QUALITY_PRESETS[activeQuality].maxBitrate || undefined),
         startTimeTicks: savedTime > 0 ? Math.floor(savedTime * 10_000_000) : undefined,
       })
-      loadSrc(newJob.hlsUrl, savedTime)
+      updateJob(newJob)
+      if (newJob.directStreamUrl) {
+        const video = videoRef.current
+        if (video) {
+          video.src = newJob.directStreamUrl
+          video.currentTime = savedTime
+          video.muted = false
+          video.volume = video.volume > 0 ? video.volume : 1
+          video.play().catch(() => {})
+        }
+        setBuffering(false)
+      } else {
+        loadSrc(newJob.hlsUrl, savedTime)
+      }
     } catch {
       setError('Failed to switch audio track')
     }
@@ -608,13 +620,10 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       return
     }
 
-    // VTT subtitle → fetch and render client-side
-    const vttUrl = track.vttUrl
-      ? `${API_BASE}${track.vttUrl}`
-      : `${API_BASE}/jellyfin/subtitle-vtt/${job.itemId}/${track.index}`
+    // VTT subtitle → fetch via backend proxy (requires auth)
+    const subPath = `/jellyfin/subtitle-vtt/${job.itemId}/${track.index}`
     try {
-      const res = await fetch(vttUrl)
-      const text = await res.text()
+      const text = await api.fetchText(subPath)
       setVttCues(parseVttCues(text))
     } catch {
       setError('Failed to load subtitles')

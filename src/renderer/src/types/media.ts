@@ -36,7 +36,9 @@ export interface SubtitleTrack {
   language: string
   codec: string
   isImageBased: boolean
+  /** VTT URL path — backend sends this as `url`, aliased here for compat. */
   vttUrl: string | null
+  url?: string | null
   /** mpv's 1-based subtitle track ID — set only for direct play jobs */
   mpvSid?: number
 }
