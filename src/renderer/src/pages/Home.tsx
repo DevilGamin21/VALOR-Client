@@ -36,6 +36,9 @@ function mapContinueWatching(cw: ProgressItem[]): UnifiedMedia[] {
       positionTicks: p.positionTicks,
       seriesId: p.seriesId,
       resumeMediaId: p.resumeMediaId,
+      episodeName: p.episodeName,
+      seasonNumber: p.seasonNumber,
+      episodeNumber: p.episodeNumber,
     })
   }
   return items
@@ -159,6 +162,12 @@ export default function Home() {
 
   async function handleResume(ticks: number) {
     if (!resumeItem) return
+    // For TV without a resumeMediaId we can't determine which episode — go to Details
+    if (resumeItem.type === 'tv' && !resumeItem.resumeMediaId) {
+      setSelected(resumeItem)
+      setResumeItem(null)
+      return
+    }
     setResumeLoading(true)
     try {
       // For TV: resumeMediaId points to the actual episode; id is the seriesId
@@ -174,7 +183,8 @@ export default function Home() {
       job.tmdbId = resumeItem.tmdbId
       openPlayer(job, ticks)
       setResumeItem(null)
-    } catch {
+    } catch (e) {
+      console.error('[Home] Resume failed:', e)
       // Fallback to PlayModal on error
       setSelected(resumeItem)
       setResumeItem(null)
@@ -320,8 +330,14 @@ export default function Home() {
                 </div>
               )}
               <div className="px-4 pb-4 pt-2">
-                <p className="text-sm font-semibold text-white truncate mb-3">{resumeItem.title}</p>
-                <div className="flex flex-col gap-2">
+                <p className="text-sm font-semibold text-white truncate">{resumeItem.title}</p>
+                {resumeItem.type === 'tv' && resumeItem.seasonNumber != null && resumeItem.episodeNumber != null && (
+                  <p className="text-xs text-white/40 mt-0.5 truncate">
+                    S{String(resumeItem.seasonNumber).padStart(2, '0')}E{String(resumeItem.episodeNumber).padStart(2, '0')}
+                    {resumeItem.episodeName ? ` · ${resumeItem.episodeName}` : ''}
+                  </p>
+                )}
+                <div className="flex flex-col gap-2 mt-3">
                   <button
                     onClick={() => handleResume(resumeItem.positionTicks!)}
                     disabled={resumeLoading}

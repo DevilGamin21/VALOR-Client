@@ -19,6 +19,12 @@ export interface UnifiedMedia {
   seriesId?: string
   /** Actual episode ID to resume — set when the store key is a seriesId. */
   resumeMediaId?: string | null
+  /** Episode name from progress store (TV only). */
+  episodeName?: string | null
+  /** Season number from progress store (TV only). */
+  seasonNumber?: number | null
+  /** Episode number from progress store (TV only). */
+  episodeNumber?: number | null
 }
 
 export interface AudioTrack {
@@ -113,6 +119,9 @@ export interface ProgressItem {
   year: number | null
   tmdbId?: number
   seriesId?: string
+  episodeName?: string | null
+  seasonNumber?: number | null
+  episodeNumber?: number | null
   updatedAt: string
 }
 
