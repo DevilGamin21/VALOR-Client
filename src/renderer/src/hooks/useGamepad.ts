@@ -82,7 +82,13 @@ export function useGamepad(options: UseGamepadOptions): { connected: boolean } {
 
   function poll() {
     const opts = optRef.current
-    if (opts.enabled === false) { rafRef.current = requestAnimationFrame(poll); return }
+    if (opts.enabled === false) {
+      clearAllRepeats()
+      prevBtnsRef.current = []
+      prevAxesRef.current = []
+      rafRef.current = requestAnimationFrame(poll)
+      return
+    }
 
     const gp = navigator.getGamepads()[0]
     if (!gp) { rafRef.current = requestAnimationFrame(poll); return }

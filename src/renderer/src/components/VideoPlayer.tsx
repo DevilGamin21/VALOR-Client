@@ -834,39 +834,103 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
 
   const progress = duration > 0 ? currentTime / duration : 0
 
-  // ─── Gamepad / controller support ─────────────────────────────────────────
+  // ─── Gamepad / controller support (spatial navigation) ────────────────────
 
   const currentEpIdx = episodeList.findIndex((ep) => ep.jellyfinId === localEpId)
+  const gpFocusRef = useRef<HTMLElement | null>(null)
+
+  const gpSetFocus = useCallback((el: HTMLElement | null) => {
+    if (gpFocusRef.current) gpFocusRef.current.classList.remove('gp-focused')
+    gpFocusRef.current = el
+    if (el) {
+      el.classList.add('gp-focused')
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
+    }
+  }, [])
+
+  // Clear gamepad focus on mouse move inside player
+  useEffect(() => {
+    const c = containerRef.current
+    if (!c) return
+    const onMouse = () => gpSetFocus(null)
+    c.addEventListener('mousemove', onMouse, { passive: true })
+    return () => c.removeEventListener('mousemove', onMouse)
+  }, [gpSetFocus])
+
+  const gpGetCandidates = useCallback((): HTMLElement[] => {
+    if (!containerRef.current) return []
+    const all = containerRef.current.querySelectorAll<HTMLElement>('[data-focusable]')
+    return Array.from(all).filter((el) => {
+      const r = el.getBoundingClientRect()
+      return r.width > 0 && r.height > 0
+    })
+  }, [])
+
+  const gpMove = useCallback((dir: 'up' | 'down' | 'left' | 'right') => {
+    const candidates = gpGetCandidates()
+    if (candidates.length === 0) return
+    const current = gpFocusRef.current
+    if (!current || !document.body.contains(current)) {
+      gpSetFocus(candidates[0])
+      return
+    }
+    const from = current.getBoundingClientRect()
+    const fc = { x: from.left + from.width / 2, y: from.top + from.height / 2 }
+    let best: HTMLElement | null = null
+    let bestScore = Infinity
+    for (const el of candidates) {
+      if (el === current) continue
+      const r = el.getBoundingClientRect()
+      const tc = { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+      // Filter by direction
+      if (dir === 'up' && tc.y >= fc.y - 1) continue
+      if (dir === 'down' && tc.y <= fc.y + 1) continue
+      if (dir === 'left' && tc.x >= fc.x - 1) continue
+      if (dir === 'right' && tc.x <= fc.x + 1) continue
+      const mainDist = (dir === 'up' || dir === 'down') ? Math.abs(tc.y - fc.y) : Math.abs(tc.x - fc.x)
+      const crossDist = (dir === 'up' || dir === 'down') ? Math.abs(tc.x - fc.x) : Math.abs(tc.y - fc.y)
+      const score = mainDist + crossDist * 3
+      if (score < bestScore) { bestScore = score; best = el }
+    }
+    if (best) gpSetFocus(best)
+  }, [gpGetCandidates, gpSetFocus])
+
+  const gpActivate = useCallback(() => {
+    if (gpFocusRef.current && document.body.contains(gpFocusRef.current)) {
+      gpFocusRef.current.click()
+    } else {
+      togglePlay()
+    }
+  }, [togglePlay])
+
+  const gpBack = useCallback(() => {
+    // Close any open panel first, then close player
+    if (showSettings) { setShowSettings(false); return }
+    if (showSubtitlePanel) { setShowSubtitlePanel(false); return }
+    if (showEpisodePanel) { setShowEpisodePanel(false); return }
+    handleClose()
+  }, [showSettings, showSubtitlePanel, showEpisodePanel, handleClose])
 
   useGamepad({
     buttons: {
-      0:  { onPress: togglePlay },                                             // A — play / pause
-      1:  { onPress: handleClose },                                            // B — close player
+      0:  { onPress: gpActivate },                                             // A — activate focused / toggle play
+      1:  { onPress: gpBack },                                                 // B — close panel or player
       2:  { onPress: toggleMute },                                             // X — mute
       3:  { onPress: toggleFullscreen },                                       // Y — fullscreen
       4:  { onPress: () => { if (currentEpIdx > 0) switchEpisode(episodeList[currentEpIdx - 1]) } },         // LB — prev episode
       5:  { onPress: () => { if (currentEpIdx < episodeList.length - 1) switchEpisode(episodeList[currentEpIdx + 1]) } }, // RB — next episode
       6:  { onPress: () => seek(-30) },                                        // LT — big skip back
       7:  { onPress: () => seek(30) },                                         // RT — big skip forward
-      8:  { onPress: () => setShowSettings((v) => !v) },                       // Back — settings
-      9:  { onPress: () => {                                                   // Start — episodes or subs
-            if (episodeList.length > 0) setShowEpisodePanel((v) => !v)
-            else setShowSubtitlePanel((v) => !v)
-          }},
-      12: { onPress: () => changeVolume(Math.min(1, volume + 0.1)),            // DPad Up — volume up
-            onRepeat: () => changeVolume(Math.min(1, volume + 0.1)), repeatDelay: 400, repeatInterval: 150 },
-      13: { onPress: () => changeVolume(Math.max(0, volume - 0.1)),            // DPad Down — volume down
-            onRepeat: () => changeVolume(Math.max(0, volume - 0.1)), repeatDelay: 400, repeatInterval: 150 },
-      14: { onPress: () => seek(-10), onRepeat: () => seek(-10), repeatDelay: 500, repeatInterval: 200 },  // DPad Left — seek back
-      15: { onPress: () => seek(10),  onRepeat: () => seek(10),  repeatDelay: 500, repeatInterval: 200 },  // DPad Right — seek fwd
+      12: { onPress: () => gpMove('up'),    onRepeat: () => gpMove('up'),    repeatDelay: 400, repeatInterval: 150 }, // DPad Up
+      13: { onPress: () => gpMove('down'),  onRepeat: () => gpMove('down'),  repeatDelay: 400, repeatInterval: 150 }, // DPad Down
+      14: { onPress: () => gpMove('left'),  onRepeat: () => gpMove('left'),  repeatDelay: 400, repeatInterval: 150 }, // DPad Left
+      15: { onPress: () => gpMove('right'), onRepeat: () => gpMove('right'), repeatDelay: 400, repeatInterval: 150 }, // DPad Right
     },
     axes: [
-      { axis: 0, direction: 'negative', onPress: () => seek(-10), onRepeat: () => seek(-10), repeatDelay: 500, repeatInterval: 200 },
-      { axis: 0, direction: 'positive', onPress: () => seek(10),  onRepeat: () => seek(10),  repeatDelay: 500, repeatInterval: 200 },
-      { axis: 1, direction: 'negative', onPress: () => changeVolume(Math.min(1, volume + 0.1)),
-        onRepeat: () => changeVolume(Math.min(1, volume + 0.1)), repeatDelay: 400, repeatInterval: 150 },
-      { axis: 1, direction: 'positive', onPress: () => changeVolume(Math.max(0, volume - 0.1)),
-        onRepeat: () => changeVolume(Math.max(0, volume - 0.1)), repeatDelay: 400, repeatInterval: 150 },
+      { axis: 0, direction: 'negative', onPress: () => gpMove('left'),  onRepeat: () => gpMove('left'),  repeatDelay: 400, repeatInterval: 150 },
+      { axis: 0, direction: 'positive', onPress: () => gpMove('right'), onRepeat: () => gpMove('right'), repeatDelay: 400, repeatInterval: 150 },
+      { axis: 1, direction: 'negative', onPress: () => gpMove('up'),    onRepeat: () => gpMove('up'),    repeatDelay: 400, repeatInterval: 150 },
+      { axis: 1, direction: 'positive', onPress: () => gpMove('down'),  onRepeat: () => gpMove('down'),  repeatDelay: 400, repeatInterval: 150 },
     ],
     onAnyInput: showControls,
   })
@@ -1048,20 +1112,20 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         {/* Control row */}
         <div className="flex items-center gap-3">
           {/* Play/Pause */}
-          <button onClick={togglePlay} className="text-white hover:text-white/80 transition">
+          <button data-focusable onClick={togglePlay} className="text-white hover:text-white/80 transition">
             {playing ? <Pause size={22} /> : <Play size={22} fill="white" />}
           </button>
 
           {/* Skip back/forward */}
-          <button onClick={() => seek(-10)} className="text-white/70 hover:text-white transition">
+          <button data-focusable onClick={() => seek(-10)} className="text-white/70 hover:text-white transition">
             <SkipBack size={18} />
           </button>
-          <button onClick={() => seek(10)} className="text-white/70 hover:text-white transition">
+          <button data-focusable onClick={() => seek(10)} className="text-white/70 hover:text-white transition">
             <SkipForward size={18} />
           </button>
 
           {/* Volume */}
-          <button onClick={toggleMute} className="text-white/70 hover:text-white transition">
+          <button data-focusable onClick={toggleMute} className="text-white/70 hover:text-white transition">
             {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
           <input
@@ -1091,6 +1155,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
 
           {/* Settings */}
           <button
+            data-focusable
             onClick={() => { setShowSettings((v) => !v); setShowSubtitlePanel(false); setShowEpisodePanel(false) }}
             className={`text-white/70 hover:text-white transition ${showSettings ? 'text-white' : ''}`}
           >
@@ -1099,6 +1164,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
 
           {/* Subtitles panel toggle */}
           <button
+            data-focusable
             onClick={() => { setShowSubtitlePanel((v) => !v); setShowSettings(false); setShowEpisodePanel(false) }}
             className={`text-white/70 hover:text-white transition ${showSubtitlePanel ? 'text-white' : ''}`}
           >
@@ -1108,6 +1174,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
           {/* Episode picker (TV only) */}
           {episodeList.length > 0 && (
             <button
+              data-focusable
               onClick={() => { setShowEpisodePanel((v) => !v); setShowSettings(false); setShowSubtitlePanel(false) }}
               className={`text-white/70 hover:text-white transition ${showEpisodePanel ? 'text-white' : ''}`}
               title="Episodes"
@@ -1117,7 +1184,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
           )}
 
           {/* Fullscreen */}
-          <button onClick={toggleFullscreen} className="text-white/70 hover:text-white transition">
+          <button data-focusable onClick={toggleFullscreen} className="text-white/70 hover:text-white transition">
             {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
           </button>
         </div>
@@ -1140,6 +1207,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
             {/* OpenSubtitles search — at the top for quick access */}
             <div className="p-2">
               <button
+                data-focusable
                 onClick={() => setOsSearchOpen((v) => !v)}
                 className="w-full flex items-center justify-between px-3 py-2 rounded-lg
                            text-xs text-white/50 hover:text-white/80 hover:bg-white/5 transition"
@@ -1224,6 +1292,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
             <div className="border-t border-dark-border" />
             <div className="p-2">
               <button
+                data-focusable
                 onClick={() => { switchSubtitle(null); setShowSubtitlePanel(false) }}
                 className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${
                   activeSub === null && activeOsSubId === null
@@ -1236,6 +1305,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
               {job.subtitleTracks.map((t) => (
                 <button
                   key={t.index}
+                  data-focusable
                   onClick={() => { switchSubtitle(t); setShowSubtitlePanel(false) }}
                   className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition ${
                     activeSub === t.index
@@ -1285,6 +1355,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
               return (
                 <button
                   key={ep.jellyfinId}
+                  data-focusable
                   onClick={() => switchEpisode(ep)}
                   className={`w-full text-left px-4 py-2.5 transition flex items-center gap-3 ${
                     isCurrent
@@ -1336,6 +1407,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
             {(['audio', 'quality', 'speed', 'sleep'] as const).map((tab) => (
               <button
                 key={tab}
+                data-focusable
                 onClick={() => setSettingsTab(tab)}
                 className={`flex-1 py-2.5 text-xs font-medium capitalize transition ${
                   settingsTab === tab
@@ -1356,6 +1428,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
                     Playing original file directly. Switch to a transcoded stream to change audio tracks.
                   </p>
                   <button
+                    data-focusable
                     onClick={switchToTranscoded}
                     className="w-full py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs font-medium transition"
                   >
@@ -1374,6 +1447,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
                 job.audioTracks.map((t) => (
                   <button
                     key={t.index}
+                    data-focusable
                     onClick={() => switchAudio(t)}
                     className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${
                       activeAudio === t.index
@@ -1394,6 +1468,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
                     Playing original quality. Switch to a transcoded stream to cap bitrate.
                   </p>
                   <button
+                    data-focusable
                     onClick={switchToTranscoded}
                     className="w-full py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs font-medium transition"
                   >
@@ -1411,6 +1486,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
                 QUALITY_PRESETS.map((preset, i) => (
                   <button
                     key={preset.label}
+                    data-focusable
                     onClick={() => switchQuality(preset, i)}
                     className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${
                       activeQuality === i
@@ -1428,6 +1504,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
               SPEEDS.map((s) => (
                 <button
                   key={s}
+                  data-focusable
                   onClick={() => { changeSpeed(s); setShowSettings(false) }}
                   className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${
                     activeSpeed === s
@@ -1444,6 +1521,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
                 {SLEEP_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}
+                    data-focusable
                     onClick={() => setSleepOption(opt.value)}
                     className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${
                       sleepOption === opt.value
