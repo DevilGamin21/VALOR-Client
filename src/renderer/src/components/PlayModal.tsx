@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Play, Plus, Check, Loader2, Lock, Wifi, Download, MoreHorizontal, Eye, EyeOff, Star } from 'lucide-react'
 import * as api from '@/services/api'
@@ -68,18 +68,16 @@ export default function PlayModal({ item, onClose }: Props) {
   const [p2pHash, setP2pHash] = useState<string | null>(null)
   const [digitalReleased, setDigitalReleased] = useState<boolean | null>(null)
 
-  // ── Auto-resume for Continue Watching items ─────────────────────────────
-  const autoResumed = useRef(false)
+  // ── Check for resume position (movie only) ──────────────────────────────
   useEffect(() => {
-    if (!item.onDemand) return
-    // If the item already carries positionTicks (from Continue Watching), auto-play immediately
-    if (item.positionTicks && item.positionTicks > 0 && item.type === 'movie' && !autoResumed.current) {
-      autoResumed.current = true
-      play(String(item.id), item.positionTicks)
+    if (!item.onDemand || item.type === 'tv') return
+    // If the item carries positionTicks (from Continue Watching), show resume prompt
+    if (item.positionTicks && item.positionTicks > 0) {
+      setResumeTicks(item.positionTicks)
+      setShowResume(true)
       return
     }
-    // Otherwise check Jellyfin for saved progress (movie only)
-    if (item.type === 'tv') return
+    // Otherwise check Jellyfin for saved progress
     api.getItemProgress(String(item.id)).then((progress) => {
       if (progress && progress.percent >= 5 && progress.percent < 90) {
         setResumeTicks(progress.positionTicks)

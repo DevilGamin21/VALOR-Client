@@ -17,6 +17,8 @@ export interface UnifiedMedia {
   isAnime?: boolean
   /** Jellyfin series ID — set on TV episodes from Continue Watching / Resume. */
   seriesId?: string
+  /** Actual episode ID to resume — set when the store key is a seriesId. */
+  resumeMediaId?: string | null
 }
 
 export interface AudioTrack {

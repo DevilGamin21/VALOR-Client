@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { AnimatePresence } from 'framer-motion'
-import { Loader2 } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { Loader2, Play, RotateCcw, Info } from 'lucide-react'
 import * as api from '@/services/api'
 import MediaRow from '@/components/MediaRow'
 import MovieCard from '@/components/MovieCard'
@@ -10,7 +10,7 @@ import DynamicHero from '@/components/DynamicHero'
 import AnimeToggle from '@/components/AnimeToggle'
 import OnDemandToggle from '@/components/OnDemandToggle'
 import { usePlayer } from '@/contexts/PlayerContext'
-import { useSettings } from '@/contexts/SettingsContext'
+import { useSettings, QUALITY_BITRATES } from '@/contexts/SettingsContext'
 import type { UnifiedMedia, TrendingResponse, ProgressItem } from '@/types/media'
 
 function mapContinueWatching(cw: ProgressItem[]): UnifiedMedia[] {
@@ -35,14 +35,15 @@ function mapContinueWatching(cw: ProgressItem[]): UnifiedMedia[] {
       playedPercentage: p.percent,
       positionTicks: p.positionTicks,
       seriesId: p.seriesId,
+      resumeMediaId: p.resumeMediaId,
     })
   }
   return items
 }
 
 export default function Home() {
-  const { isOpen } = usePlayer()
-  const { discordRPC } = useSettings()
+  const { isOpen, openPlayer } = usePlayer()
+  const { discordRPC, directPlay, defaultQuality } = useSettings()
   const wasOpenRef = useRef(false)
   const [searchParams] = useSearchParams()
   const query = searchParams.get('q') || ''
@@ -56,6 +57,10 @@ export default function Home() {
   const [categories, setCategories] = useState<api.HomeCategories | null>(null)
   const [selected, setSelected] = useState<UnifiedMedia | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // Resume prompt overlay
+  const [resumeItem, setResumeItem] = useState<UnifiedMedia | null>(null)
+  const [resumeLoading, setResumeLoading] = useState(false)
 
   // Search
   const [searchResults, setSearchResults] = useState<UnifiedMedia[]>([])
@@ -134,6 +139,50 @@ export default function Home() {
       .finally(() => setSearchLoading(false))
   }, [query])
 
+  function formatTicks(ticks: number) {
+    const s = Math.floor(ticks / 10_000_000)
+    const h = Math.floor(s / 3600)
+    const m = Math.floor((s % 3600) / 60)
+    const sec = s % 60
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    return `${m}:${String(sec).padStart(2, '0')}`
+  }
+
+  // Click handler for Continue Watching items — shows resume prompt
+  function handleCwClick(item: UnifiedMedia) {
+    if (item.positionTicks && item.positionTicks > 0) {
+      setResumeItem(item)
+    } else {
+      setSelected(item)
+    }
+  }
+
+  async function handleResume(ticks: number) {
+    if (!resumeItem) return
+    setResumeLoading(true)
+    try {
+      // For TV: resumeMediaId points to the actual episode; id is the seriesId
+      const playId = resumeItem.resumeMediaId || String(resumeItem.id)
+      const job = await api.startPlayJob({
+        itemId: playId,
+        directPlay,
+        maxBitrate: directPlay ? undefined : QUALITY_BITRATES[defaultQuality],
+        startTimeTicks: ticks > 0 ? ticks : undefined,
+      })
+      job.posterUrl = resumeItem.posterUrl?.startsWith('https://image.tmdb.org') ? resumeItem.posterUrl : null
+      job.seriesId = resumeItem.seriesId || undefined
+      job.tmdbId = resumeItem.tmdbId
+      openPlayer(job, ticks)
+      setResumeItem(null)
+    } catch {
+      // Fallback to PlayModal on error
+      setSelected(resumeItem)
+      setResumeItem(null)
+    } finally {
+      setResumeLoading(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -199,7 +248,7 @@ export default function Home() {
       </div>
 
       {filterItems(continueWatching).length > 0 && (
-        <MediaRow title="Continue Watching" items={filterItems(continueWatching)} onPlay={setSelected} />
+        <MediaRow title="Continue Watching" items={filterItems(continueWatching)} onPlay={handleCwClick} />
       )}
 
       {filterItems(recentMovies).length > 0 && (
@@ -245,6 +294,66 @@ export default function Home() {
       {!animeOnly && !onDemandOnly && categories?.sciFiTv && categories.sciFiTv.length > 0 && (
         <MediaRow title="Sci-Fi & Fantasy" items={categories.sciFiTv} onPlay={setSelected} />
       )}
+
+      {/* Resume prompt overlay for Continue Watching */}
+      <AnimatePresence>
+        {resumeItem && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+            onClick={() => setResumeItem(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              className="w-72 bg-[#181818] rounded-xl border border-white/10 shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Poster strip */}
+              {resumeItem.posterUrl && (
+                <div className="relative h-24 overflow-hidden">
+                  <img src={resumeItem.backdropUrl || resumeItem.posterUrl} alt="" className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#181818] to-transparent" />
+                </div>
+              )}
+              <div className="px-4 pb-4 pt-2">
+                <p className="text-sm font-semibold text-white truncate mb-3">{resumeItem.title}</p>
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={() => handleResume(resumeItem.positionTicks!)}
+                    disabled={resumeLoading}
+                    className="flex items-center justify-center gap-2 py-2.5 rounded-lg
+                               bg-white text-black font-semibold text-sm hover:bg-white/90 transition disabled:opacity-50"
+                  >
+                    {resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill="black" />}
+                    Resume at {formatTicks(resumeItem.positionTicks!)}
+                  </button>
+                  <button
+                    onClick={() => handleResume(0)}
+                    disabled={resumeLoading}
+                    className="flex items-center justify-center gap-2 py-2.5 rounded-lg
+                               bg-white/10 text-white text-sm hover:bg-white/15 transition disabled:opacity-50"
+                  >
+                    <RotateCcw size={14} />
+                    Start from Beginning
+                  </button>
+                  <button
+                    onClick={() => { setSelected(resumeItem); setResumeItem(null) }}
+                    className="flex items-center justify-center gap-2 py-2.5 rounded-lg
+                               bg-white/5 text-white/60 text-sm hover:bg-white/10 hover:text-white/80 transition"
+                  >
+                    <Info size={14} />
+                    Details
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {selected && (

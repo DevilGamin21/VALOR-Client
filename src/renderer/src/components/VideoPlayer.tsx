@@ -94,6 +94,18 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
 
   const isDirectPlay = !!job.directStreamUrl
 
+  // Persist audio/subtitle preferences per series (TV) or per item (movie)
+  const avPrefsKey = job.seriesId || job.itemId
+  function saveAvPrefs(audio: number, sub: number | null) {
+    try { localStorage.setItem(`av-prefs-${avPrefsKey}`, JSON.stringify({ audio, sub })) } catch {}
+  }
+  function loadAvPrefs(): { audio: number; sub: number | null } | null {
+    try {
+      const raw = localStorage.getItem(`av-prefs-${avPrefsKey}`)
+      return raw ? JSON.parse(raw) : null
+    } catch { return null }
+  }
+
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -252,8 +264,51 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       loadSrc(job.hlsUrl)
     }
 
-    // Auto-select preferred subtitle (text-based only, no re-transcode)
-    if (preferredSubtitleLang !== 'off' && preferredSubtitleLang !== 'auto' && video) {
+    // Restore saved audio/subtitle preferences (takes priority over language setting)
+    const savedPrefs = loadAvPrefs()
+    let restoredSub = false
+    if (savedPrefs) {
+      // Restore audio — if different from default, switch
+      if (savedPrefs.audio > 0 && job.audioTracks.some((t) => t.index === savedPrefs.audio)) {
+        setActiveAudio(savedPrefs.audio)
+        // Re-start with correct audio stream
+        const savedTime = videoRef.current?.currentTime ?? 0
+        api.startPlayJob({
+          itemId: job.itemId,
+          audioStreamIndex: savedPrefs.audio,
+          directPlay: settingsDirectPlay,
+          maxBitrate: settingsDirectPlay ? undefined : undefined,
+          startTimeTicks: startPositionTicks > 0 ? startPositionTicks : undefined,
+        }).then((newJob) => {
+          updateJob(newJob)
+          if (newJob.directStreamUrl) {
+            const v = videoRef.current
+            if (v) {
+              v.src = newJob.directStreamUrl
+              if (startPositionTicks > 0) v.currentTime = startPositionTicks / 10_000_000
+              v.muted = false
+              v.volume = v.volume > 0 ? v.volume : 1
+              v.play().catch(() => {})
+            }
+          } else {
+            loadSrc(newJob.hlsUrl, savedTime)
+          }
+        }).catch(() => {})
+      }
+      // Restore subtitle
+      if (savedPrefs.sub !== null) {
+        const subTrack = job.subtitleTracks.find((t) => t.index === savedPrefs.sub)
+        if (subTrack && !subTrack.isImageBased) {
+          restoredSub = true
+          setActiveSub(subTrack.index)
+          const subPath = `/jellyfin/subtitle-vtt/${job.itemId}/${subTrack.index}`
+          api.fetchText(subPath).then((text) => setVttCues(parseVttCues(text))).catch(() => {})
+        }
+      }
+    }
+
+    // Auto-select preferred subtitle (text-based only) — only if no saved pref was restored
+    if (!restoredSub && preferredSubtitleLang !== 'off' && preferredSubtitleLang !== 'auto' && video) {
       const match = job.subtitleTracks.find(
         (t) => t.language?.toLowerCase().startsWith(preferredSubtitleLang) && !t.isImageBased
       )
@@ -565,6 +620,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   async function switchAudio(track: AudioTrack) {
     const savedTime = videoRef.current?.currentTime ?? 0
     setActiveAudio(track.index)
+    saveAvPrefs(track.index, activeSub)
     setShowSettings(false)
     setBuffering(true)
     try {
@@ -596,6 +652,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
 
   async function switchSubtitle(track: SubtitleTrack | null) {
     setActiveSub(track?.index ?? null)
+    saveAvPrefs(activeAudio, track?.index ?? null)
     setVttCues([])
     setActiveCue(null)
     setActiveOsSubId(null)
