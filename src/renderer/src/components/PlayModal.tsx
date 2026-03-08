@@ -834,6 +834,7 @@ export default function PlayModal({ item, onClose }: Props) {
                               {/* Options button — dropdown rendered at modal root via fixed position */}
                               {ep.jellyfinId && (
                                 <button
+                                  data-focusable
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     if (activeMenu?.epId === ep.id) {
@@ -914,6 +915,7 @@ export default function PlayModal({ item, onClose }: Props) {
               style={{ top: activeMenu.top, right: activeMenu.right }}
             >
               <button
+                data-focusable
                 onClick={() => handleMarkWatched(menuEp, !isWatched)}
                 className="w-full text-left px-3 py-2.5 text-xs text-white/70
                            hover:bg-white/8 hover:text-white transition flex items-center gap-2"

@@ -13,20 +13,58 @@ interface GamepadNavState {
 
 const GamepadNavContext = createContext<GamepadNavState | null>(null)
 
-// ─── Spatial helpers ─────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function center(r: DOMRect) {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
 }
 
-function isVisible(el: Element): boolean {
+function isInViewport(el: Element): boolean {
+  const r = el.getBoundingClientRect()
+  if (r.width === 0 || r.height === 0) return false
+  // Must be at least partially inside the viewport vertically
+  return r.bottom > 0 && r.top < window.innerHeight
+}
+
+function isFullyVisible(el: Element): boolean {
   const r = el.getBoundingClientRect()
   if (r.width === 0 || r.height === 0) return false
   return r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth
 }
 
-function findNearest(from: DOMRect | null, direction: Direction, candidates: Element[]): Element | null {
-  const fc = from ? center(from) : { x: 0, y: 0 }
+/** Check if an element is inside the sidebar (the <aside>) */
+function isInSidebar(el: Element): boolean {
+  return !!el.closest('aside')
+}
+
+/** Find the scrollable carousel container for a focusable element */
+function findScrollRow(el: Element): HTMLElement | null {
+  let parent = el.parentElement
+  while (parent) {
+    if (parent.classList.contains('overflow-x-auto')) return parent
+    parent = parent.parentElement
+  }
+  return null
+}
+
+/** Get the modal root if a modal is open, or null */
+function getModalRoot(): Element | null {
+  const modals = document.querySelectorAll('[data-modal-close]')
+  if (modals.length === 0) return null
+  const closeBtn = modals[modals.length - 1]
+  let el: Element | null = closeBtn
+  while (el && el !== document.body) {
+    const style = window.getComputedStyle(el)
+    if (style.position === 'fixed' && (el.classList.contains('z-50') || el.classList.contains('z-[50]'))) return el
+    el = el.parentElement
+  }
+  // If the close button itself is on the fixed overlay
+  if (closeBtn.classList.contains('fixed')) return closeBtn
+  return null
+}
+
+function findNearest(from: DOMRect, direction: Direction, candidates: Element[]): Element | null {
+  const fc = center(from)
   let best: Element | null = null
   let bestScore = Infinity
 
@@ -76,7 +114,19 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
     focusedRef.current = el
     if (el) {
       el.classList.add('gp-focused')
-      el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
+      // For elements in a horizontal scroll row, scroll the row to reveal the card
+      const scrollRow = findScrollRow(el)
+      if (scrollRow) {
+        const rowRect = scrollRow.getBoundingClientRect()
+        const elRect = el.getBoundingClientRect()
+        // If the element is partially or fully outside the row's visible area, scroll it in
+        if (elRect.left < rowRect.left || elRect.right > rowRect.right) {
+          const offset = elRect.left - rowRect.left - rowRect.width / 2 + elRect.width / 2
+          scrollRow.scrollBy({ left: offset, behavior: 'smooth' })
+        }
+      }
+      // Vertical scroll: make sure the element is visible in the main scroll area
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     }
   }, [])
 
@@ -90,9 +140,7 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
   // ── Mouse clears gamepad focus ─────────────────────────────────────────
 
   useEffect(() => {
-    function onMouseMove() {
-      clearFocus()
-    }
+    function onMouseMove() { clearFocus() }
     window.addEventListener('mousemove', onMouseMove, { passive: true })
     return () => window.removeEventListener('mousemove', onMouseMove)
   }, [clearFocus])
@@ -101,7 +149,7 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
 
   function ensureFocus(): Element | null {
     if (focusedRef.current) {
-      if (document.body.contains(focusedRef.current) && isVisible(focusedRef.current)) {
+      if (document.body.contains(focusedRef.current) && isInViewport(focusedRef.current)) {
         return focusedRef.current
       }
       clearFocus()
@@ -109,62 +157,146 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
     return null
   }
 
-  // ── Get focusable candidates — scoped to topmost modal if one is open ──
+  // ── Get focusable candidates ───────────────────────────────────────────
 
-  function getCandidates(): Element[] {
-    // If a modal (z-50 fixed overlay) is open, restrict navigation to its contents
-    const modals = document.querySelectorAll('[data-modal-close]')
-    if (modals.length > 0) {
-      // Find the modal container — walk up from the close button to the fixed overlay
-      const closeBtn = modals[modals.length - 1]
-      let modalRoot: Element | null = closeBtn
-      while (modalRoot && modalRoot !== document.body) {
-        const style = window.getComputedStyle(modalRoot)
-        if (style.position === 'fixed' && modalRoot.classList.contains('z-50')) break
-        modalRoot = modalRoot.parentElement
-      }
-      if (modalRoot && modalRoot !== document.body) {
-        return Array.from(modalRoot.querySelectorAll('[data-focusable]')).filter(isVisible)
+  function getCandidates(inModal: boolean): Element[] {
+    if (inModal) {
+      const modalRoot = getModalRoot()
+      if (modalRoot) {
+        return Array.from(modalRoot.querySelectorAll('[data-focusable]')).filter(isFullyVisible)
       }
     }
-    // No modal — all visible focusable elements
-    return Array.from(document.querySelectorAll('[data-focusable]')).filter(isVisible)
-  }
-
-  // ── Scroll the main content area ──────────────────────────────────────
-
-  function scrollMainContent(direction: 'up' | 'down') {
-    const main = document.querySelector('main')
-    if (!main) return
-    const amount = direction === 'down' ? 300 : -300
-    main.scrollBy({ top: amount, behavior: 'smooth' })
+    return Array.from(document.querySelectorAll('[data-focusable]')).filter(isInViewport)
   }
 
   // ── Move focus ─────────────────────────────────────────────────────────
 
   const move = useCallback((direction: Direction) => {
+    const inModal = !!getModalRoot()
     const current = ensureFocus()
-    const candidates = getCandidates().filter((el) => el !== current)
 
-    if (candidates.length === 0) return
-
+    // ── No current focus → pick first meaningful element ──
     if (!current) {
-      setFocus(candidates[0])
+      const candidates = getCandidates(inModal)
+      if (candidates.length === 0) return
+      if (inModal) {
+        // In a modal, skip the close button — focus the first interactive element
+        const meaningful = candidates.find(el => !el.hasAttribute('data-modal-close'))
+        setFocus(meaningful || candidates[0])
+      } else {
+        // Prefer content (non-sidebar) element
+        const contentEl = candidates.find(el => !isInSidebar(el))
+        setFocus(contentEl || candidates[0])
+      }
       return
     }
 
+    const currentInSidebar = isInSidebar(current)
     const from = current.getBoundingClientRect()
-    const next = findNearest(from, direction, candidates)
+
+    // ── Inside a modal → pure spatial nav ──
+    if (inModal) {
+      const candidates = getCandidates(true).filter(el => el !== current)
+      if (candidates.length === 0) return
+      const next = findNearest(from, direction, candidates)
+      if (next) setFocus(next)
+      return
+    }
+
+    // ── Sidebar navigation ──
+    if (currentInSidebar) {
+      if (direction === 'right') {
+        // Exit sidebar → first visible content focusable
+        const content = getCandidates(false).filter(el => !isInSidebar(el) && isFullyVisible(el))
+        if (content.length > 0) {
+          const nearest = findNearest(from, 'right', content)
+          setFocus(nearest || content[0])
+        }
+        return
+      }
+      // Up/down within sidebar
+      if (direction === 'up' || direction === 'down') {
+        const sidebarItems = getCandidates(false).filter(el => isInSidebar(el) && el !== current)
+        const next = findNearest(from, direction, sidebarItems)
+        if (next) setFocus(next)
+        return
+      }
+      return
+    }
+
+    // ── Content area navigation ──
+
+    if (direction === 'left') {
+      // Check if there's a focusable element to the left (in the same row or a carousel)
+      const scrollRow = findScrollRow(current)
+      const contentItems = getCandidates(false).filter(el => !isInSidebar(el) && el !== current)
+      const leftNearest = findNearest(from, 'left', contentItems)
+
+      if (leftNearest) {
+        setFocus(leftNearest)
+      } else if (scrollRow) {
+        // Scroll the carousel left and try again after a brief delay
+        scrollRow.scrollBy({ left: -200, behavior: 'smooth' })
+        setTimeout(() => {
+          const newCandidates = Array.from(document.querySelectorAll('[data-focusable]'))
+            .filter(el => !isInSidebar(el) && el !== current && isFullyVisible(el))
+          const next = findNearest(from, 'left', newCandidates)
+          if (next) setFocus(next)
+        }, 200)
+      } else {
+        // No more content to the left → go to sidebar
+        const sidebarItems = getCandidates(false).filter(el => isInSidebar(el))
+        if (sidebarItems.length > 0) {
+          // Pick sidebar item closest vertically
+          const nearest = findNearest(from, 'left', sidebarItems)
+          setFocus(nearest || sidebarItems[0])
+        }
+      }
+      return
+    }
+
+    if (direction === 'right') {
+      const scrollRow = findScrollRow(current)
+      const contentItems = getCandidates(false).filter(el => !isInSidebar(el) && el !== current)
+      const rightNearest = findNearest(from, 'right', contentItems)
+
+      if (rightNearest) {
+        setFocus(rightNearest)
+      } else if (scrollRow) {
+        // Scroll the carousel right and find newly visible elements
+        scrollRow.scrollBy({ left: 200, behavior: 'smooth' })
+        setTimeout(() => {
+          const newCandidates = Array.from(document.querySelectorAll('[data-focusable]'))
+            .filter(el => !isInSidebar(el) && el !== current && isFullyVisible(el))
+          const next = findNearest(from, 'right', newCandidates)
+          if (next) setFocus(next)
+        }, 200)
+      }
+      return
+    }
+
+    // Up/Down — move between rows, only among content elements
+    const contentItems = getCandidates(false).filter(el => !isInSidebar(el) && el !== current)
+    const next = findNearest(from, direction, contentItems)
 
     if (next) {
       setFocus(next)
-    } else if (direction === 'down') {
-      // No focusable element below — scroll the page down
-      scrollMainContent('down')
-    } else if (direction === 'up') {
-      scrollMainContent('up')
+    } else {
+      // No focusable element in direction — scroll the page
+      const main = document.querySelector('main')
+      if (main) {
+        const amount = direction === 'down' ? 300 : -300
+        main.scrollBy({ top: amount, behavior: 'smooth' })
+        // After scrolling, look for newly visible elements
+        setTimeout(() => {
+          const newCandidates = Array.from(document.querySelectorAll('[data-focusable]'))
+            .filter(el => !isInSidebar(el) && el !== (focusedRef.current) && isFullyVisible(el))
+          const found = findNearest(from, direction, newCandidates)
+          if (found) setFocus(found)
+        }, 350)
+      }
     }
-  }, [setFocus])
+  }, [setFocus, clearFocus])
 
   // ── A button → activate ────────────────────────────────────────────────
 
@@ -182,7 +314,6 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
     if (closeButtons.length > 0) {
       const last = closeButtons[closeButtons.length - 1]
       if (last instanceof HTMLElement) {
-        // Clear focus before closing so it doesn't stick to removed element
         clearFocus()
         last.click()
         return
@@ -195,12 +326,12 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
 
   const { connected } = useGamepad({
     buttons: {
-      0:  { onPress: activate },                                                          // A — select
-      1:  { onPress: goBack },                                                            // B — back
-      12: { onPress: () => move('up'),    onRepeat: () => move('up'),    repeatDelay: 400, repeatInterval: 150 }, // DPad Up
-      13: { onPress: () => move('down'),  onRepeat: () => move('down'),  repeatDelay: 400, repeatInterval: 150 }, // DPad Down
-      14: { onPress: () => move('left'),  onRepeat: () => move('left'),  repeatDelay: 400, repeatInterval: 150 }, // DPad Left
-      15: { onPress: () => move('right'), onRepeat: () => move('right'), repeatDelay: 400, repeatInterval: 150 }, // DPad Right
+      0:  { onPress: activate },
+      1:  { onPress: goBack },
+      12: { onPress: () => move('up'),    onRepeat: () => move('up'),    repeatDelay: 400, repeatInterval: 150 },
+      13: { onPress: () => move('down'),  onRepeat: () => move('down'),  repeatDelay: 400, repeatInterval: 150 },
+      14: { onPress: () => move('left'),  onRepeat: () => move('left'),  repeatDelay: 400, repeatInterval: 150 },
+      15: { onPress: () => move('right'), onRepeat: () => move('right'), repeatDelay: 400, repeatInterval: 150 },
     },
     axes: [
       { axis: 0, direction: 'negative', onPress: () => move('left'),  onRepeat: () => move('left'),  repeatDelay: 400, repeatInterval: 150 },
@@ -208,7 +339,7 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
       { axis: 1, direction: 'negative', onPress: () => move('up'),    onRepeat: () => move('up'),    repeatDelay: 400, repeatInterval: 150 },
       { axis: 1, direction: 'positive', onPress: () => move('down'),  onRepeat: () => move('down'),  repeatDelay: 400, repeatInterval: 150 },
     ],
-    enabled: !isOpen, // Disabled when video player is open — it has its own controls
+    enabled: !isOpen,
   })
 
   return (

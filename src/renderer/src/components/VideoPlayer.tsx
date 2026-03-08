@@ -272,28 +272,16 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       // Restore audio — if different from default, switch
       if (savedPrefs.audio > 0 && job.audioTracks.some((t) => t.index === savedPrefs.audio)) {
         setActiveAudio(savedPrefs.audio)
-        // Re-start with correct audio stream
+        // Re-start with correct audio stream (always transcoded for audio switch)
         const savedTime = videoRef.current?.currentTime ?? 0
         api.startPlayJob({
           itemId: job.itemId,
           audioStreamIndex: savedPrefs.audio,
-          directPlay: settingsDirectPlay,
-          maxBitrate: settingsDirectPlay ? undefined : undefined,
+          maxBitrate: QUALITY_BITRATES[defaultQuality],
           startTimeTicks: startPositionTicks > 0 ? startPositionTicks : undefined,
         }).then((newJob) => {
           updateJob(newJob)
-          if (newJob.directStreamUrl) {
-            const v = videoRef.current
-            if (v) {
-              v.src = newJob.directStreamUrl
-              if (startPositionTicks > 0) v.currentTime = startPositionTicks / 10_000_000
-              v.muted = false
-              v.volume = v.volume > 0 ? v.volume : 1
-              v.play().catch(() => {})
-            }
-          } else {
-            loadSrc(newJob.hlsUrl, savedTime)
-          }
+          loadSrc(newJob.hlsUrl, savedTime)
         }).catch(() => {})
       }
       // Restore subtitle
@@ -636,27 +624,15 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     setShowSettings(false)
     setBuffering(true)
     try {
+      // Audio switching always requires transcoding — never send directPlay: true
       const newJob = await api.startPlayJob({
         itemId: job.itemId,
         audioStreamIndex: track.index,
-        directPlay: settingsDirectPlay,
-        maxBitrate: settingsDirectPlay ? undefined : (QUALITY_PRESETS[activeQuality].maxBitrate || undefined),
+        maxBitrate: QUALITY_PRESETS[activeQuality].maxBitrate || undefined,
         startTimeTicks: savedTime > 0 ? Math.floor(savedTime * 10_000_000) : undefined,
       })
       updateJob(newJob)
-      if (newJob.directStreamUrl) {
-        const video = videoRef.current
-        if (video) {
-          video.src = newJob.directStreamUrl
-          video.currentTime = savedTime
-          video.muted = false
-          video.volume = video.volume > 0 ? video.volume : 1
-          video.play().catch(() => {})
-        }
-        setBuffering(false)
-      } else {
-        loadSrc(newJob.hlsUrl, savedTime)
-      }
+      loadSrc(newJob.hlsUrl, savedTime)
     } catch {
       setError('Failed to switch audio track')
     }
