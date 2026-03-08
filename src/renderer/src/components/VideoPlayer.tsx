@@ -90,7 +90,7 @@ const SUBTITLE_FONT_SIZE: Record<SubtitleSize, string> = {
 
 export default function VideoPlayer({ job, startPositionTicks, onClose }: Props) {
   const { episodeList, currentEpisodeId, updateJob } = usePlayer()
-  const { autoplayNext, preferredSubtitleLang, directPlay: settingsDirectPlay, defaultQuality, subtitleSize, subtitleBgOpacity, discordRPC } = useSettings()
+  const { autoplayNext, preferredAudioLang, preferredSubtitleLang, directPlay: settingsDirectPlay, defaultQuality, subtitleSize, subtitleBgOpacity, discordRPC } = useSettings()
 
   const isDirectPlay = !!job.directStreamUrl
 
@@ -267,10 +267,12 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
 
     // Restore saved audio/subtitle preferences (takes priority over language setting)
     const savedPrefs = loadAvPrefs()
+    let restoredAudio = false
     let restoredSub = false
     if (savedPrefs) {
       // Restore audio — if different from default, switch
       if (savedPrefs.audio > 0 && job.audioTracks.some((t) => t.index === savedPrefs.audio)) {
+        restoredAudio = true
         setActiveAudio(savedPrefs.audio)
         // Re-start with correct audio stream (always transcoded for audio switch)
         const savedTime = videoRef.current?.currentTime ?? 0
@@ -295,6 +297,28 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
           const subPath = `/jellyfin/subtitle-vtt/${job.itemId}/${subTrack.index}`
           api.fetchText(subPath).then((text) => setVttCues(parseVttCues(text))).catch(() => {})
         }
+      }
+    }
+
+    // Auto-select preferred audio language — only if no saved audio pref was restored
+    if (!restoredAudio && preferredAudioLang !== 'auto' && preferredAudioLang !== '' && job.audioTracks.length > 1) {
+      const match = job.audioTracks.find(
+        (t) => t.language?.toLowerCase().startsWith(preferredAudioLang.toLowerCase()) && !t.isDefault
+      )
+      if (match) {
+        setActiveAudio(match.index)
+        const savedTime = videoRef.current?.currentTime ?? 0
+        api.startPlayJob({
+          itemId: job.itemId,
+          audioStreamIndex: match.index,
+          maxBitrate: QUALITY_BITRATES[defaultQuality],
+          startTimeTicks: startPositionTicks > 0 ? startPositionTicks : undefined,
+          previousPlaySessionId: job.playSessionId || undefined,
+          previousDeviceId: job.deviceId,
+        }).then((newJob) => {
+          updateJob(newJob)
+          loadSrc(newJob.hlsUrl, savedTime)
+        }).catch(() => {})
       }
     }
 
