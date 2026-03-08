@@ -1139,8 +1139,9 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     if (showSettings) { setShowSettings(false); setGpZone('controls'); return }
     if (showSubtitlePanel) { setShowSubtitlePanel(false); setGpZone('controls'); return }
     if (showEpisodePanel) { setShowEpisodePanel(false); setGpZone('controls'); return }
-    // Hide HUD or close player
-    if (controlsVisible) { setControlsVisible(false); setGpZone('none'); return }
+    // Nothing open — close the player directly
+    setControlsVisible(false)
+    setGpZone('none')
     handleClose()
   }, [showVolumePopup, showSettings, showSubtitlePanel, showEpisodePanel,
       upNextVisible, gpZone, controlsVisible, handleClose, gpSetFocus])
