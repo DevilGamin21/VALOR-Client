@@ -251,8 +251,32 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   // Initial load
   useEffect(() => {
     const video = videoRef.current
+
+    // Check upfront if we need an audio switch — if so, skip the initial loadSrc
+    // to avoid a race condition where HLS.js starts loading the first URL, then
+    // the audio switch kills that session and causes a fragLoaderror.
+    const savedPrefs = loadAvPrefs()
+    let needsAudioSwitch = false
+    let targetAudioIndex: number | undefined
+
+    // Priority 1: saved per-series/item audio pref
+    if (savedPrefs?.audio && savedPrefs.audio > 0 && job.audioTracks.some((t) => t.index === savedPrefs.audio)) {
+      needsAudioSwitch = true
+      targetAudioIndex = savedPrefs.audio
+    }
+    // Priority 2: preferred audio language setting
+    else if (preferredAudioLang !== 'auto' && preferredAudioLang !== '' && job.audioTracks.length > 1) {
+      const match = job.audioTracks.find(
+        (t) => t.language?.toLowerCase().startsWith(preferredAudioLang.toLowerCase()) && !t.isDefault
+      )
+      if (match) {
+        needsAudioSwitch = true
+        targetAudioIndex = match.index
+      }
+    }
+
     if (job.directStreamUrl) {
-      // Direct play: bypass HLS entirely
+      // Direct play: bypass HLS entirely (no audio switching in direct play mode)
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
       if (video) {
         video.src = job.directStreamUrl
@@ -261,64 +285,38 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         video.volume = video.volume > 0 ? video.volume : 1
         video.play().catch(() => {})
       }
+    } else if (needsAudioSwitch && targetAudioIndex != null) {
+      // Need audio switch — start play-job with correct audio directly, skip initial loadSrc
+      setActiveAudio(targetAudioIndex)
+      setBuffering(true)
+      api.startPlayJob({
+        itemId: job.itemId,
+        audioStreamIndex: targetAudioIndex,
+        maxBitrate: QUALITY_BITRATES[defaultQuality],
+        startTimeTicks: startPositionTicks > 0 ? startPositionTicks : undefined,
+        previousPlaySessionId: job.playSessionId || undefined,
+        previousDeviceId: job.deviceId,
+      }).then((newJob) => {
+        updateJob(newJob)
+        loadSrc(newJob.hlsUrl)
+      }).catch(() => {
+        // Fallback: load original URL if audio switch fails
+        loadSrc(job.hlsUrl)
+      })
     } else {
+      // No audio switch needed — load directly
       loadSrc(job.hlsUrl)
     }
 
-    // Restore saved audio/subtitle preferences (takes priority over language setting)
-    const savedPrefs = loadAvPrefs()
-    let restoredAudio = false
+    // Restore subtitle preference
     let restoredSub = false
-    if (savedPrefs) {
-      // Restore audio — if different from default, switch
-      if (savedPrefs.audio > 0 && job.audioTracks.some((t) => t.index === savedPrefs.audio)) {
-        restoredAudio = true
-        setActiveAudio(savedPrefs.audio)
-        // Re-start with correct audio stream (always transcoded for audio switch)
-        const savedTime = videoRef.current?.currentTime ?? 0
-        api.startPlayJob({
-          itemId: job.itemId,
-          audioStreamIndex: savedPrefs.audio,
-          maxBitrate: QUALITY_BITRATES[defaultQuality],
-          startTimeTicks: startPositionTicks > 0 ? startPositionTicks : undefined,
-          previousPlaySessionId: job.playSessionId || undefined,
-          previousDeviceId: job.deviceId,
-        }).then((newJob) => {
-          updateJob(newJob)
-          loadSrc(newJob.hlsUrl, savedTime)
-        }).catch(() => {})
-      }
-      // Restore subtitle
-      if (savedPrefs.sub !== null) {
-        const subTrack = job.subtitleTracks.find((t) => t.index === savedPrefs.sub)
-        if (subTrack && !subTrack.isImageBased) {
-          restoredSub = true
-          setActiveSub(subTrack.index)
-          const subPath = `/jellyfin/subtitle-vtt/${job.itemId}/${subTrack.index}`
-          api.fetchText(subPath).then((text) => setVttCues(parseVttCues(text))).catch(() => {})
-        }
-      }
-    }
-
-    // Auto-select preferred audio language — only if no saved audio pref was restored
-    if (!restoredAudio && preferredAudioLang !== 'auto' && preferredAudioLang !== '' && job.audioTracks.length > 1) {
-      const match = job.audioTracks.find(
-        (t) => t.language?.toLowerCase().startsWith(preferredAudioLang.toLowerCase()) && !t.isDefault
-      )
-      if (match) {
-        setActiveAudio(match.index)
-        const savedTime = videoRef.current?.currentTime ?? 0
-        api.startPlayJob({
-          itemId: job.itemId,
-          audioStreamIndex: match.index,
-          maxBitrate: QUALITY_BITRATES[defaultQuality],
-          startTimeTicks: startPositionTicks > 0 ? startPositionTicks : undefined,
-          previousPlaySessionId: job.playSessionId || undefined,
-          previousDeviceId: job.deviceId,
-        }).then((newJob) => {
-          updateJob(newJob)
-          loadSrc(newJob.hlsUrl, savedTime)
-        }).catch(() => {})
+    if (savedPrefs?.sub !== null && savedPrefs?.sub !== undefined) {
+      const subTrack = job.subtitleTracks.find((t) => t.index === savedPrefs.sub)
+      if (subTrack && !subTrack.isImageBased) {
+        restoredSub = true
+        setActiveSub(subTrack.index)
+        const subPath = `/jellyfin/subtitle-vtt/${job.itemId}/${subTrack.index}`
+        api.fetchText(subPath).then((text) => setVttCues(parseVttCues(text))).catch(() => {})
       }
     }
 
