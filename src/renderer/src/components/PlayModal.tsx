@@ -603,12 +603,13 @@ export default function PlayModal({ item, onClose }: Props) {
                 data-focusable
                 onClick={() => toggle(item)}
                 title={inWatchlist ? 'Remove from watchlist' : 'Add to watchlist'}
-                className="w-10 h-10 rounded-lg bg-white/10 hover:bg-white/15 flex items-center justify-center transition"
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
+                           bg-white/10 hover:bg-white/15 text-white text-sm transition"
               >
                 {inWatchlist ? (
-                  <Check size={16} className="text-green-400" />
+                  <><Check size={14} className="text-green-400" /> Saved</>
                 ) : (
-                  <Plus size={16} className="text-white/70" />
+                  <><Plus size={14} /> Save</>
                 )}
               </button>
             </div>
@@ -842,7 +843,7 @@ export default function PlayModal({ item, onClose }: Props) {
                               key={ep.id}
                               data-focusable={isPlayable ? true : undefined}
                               onClick={isPlayable ? () => { setActiveMenu(null); handleEpisodePlay(ep) } : undefined}
-                              className={`group relative flex items-center gap-3 pl-1.5 pr-3 py-3.5 rounded-lg transition overflow-hidden ${
+                              className={`group relative flex items-center gap-3 pl-0 pr-3 py-3.5 rounded-lg transition overflow-hidden ${
                                 isPlayable
                                   ? 'bg-white/[0.03] hover:bg-white/[0.08] cursor-pointer'
                                   : 'bg-white/[0.02] opacity-50'

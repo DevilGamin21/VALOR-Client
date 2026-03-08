@@ -374,6 +374,14 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
     const current = ensureFocus()
     if (current && current instanceof HTMLElement) {
       current.click()
+      // React re-renders (e.g. URL param changes from toggles) can overwrite
+      // the className attribute, stripping the gp-focused class we added.
+      // Re-apply it on the next frame to keep the visual highlight stable.
+      requestAnimationFrame(() => {
+        if (focusedRef.current === current && document.body.contains(current)) {
+          current.classList.add('gp-focused')
+        }
+      })
     }
   }, [])
 

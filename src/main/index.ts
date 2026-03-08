@@ -114,9 +114,25 @@ function createWindow(): void {
     }
   })
 
-  // Keep page "visible" even when window is unfocused — the Gamepad API only
-  // returns data when document.visibilityState === 'visible'. This override lets
-  // controllers work while the user is in another window.
+  // ── Gamepad focus emulation ──────────────────────────────────────────────
+  // The Gamepad API in Chromium checks Page::IsPageVisible() at the C++ level.
+  // JS-level overrides of document.visibilityState don't affect this check.
+  // Use Chrome DevTools Protocol to emulate focus so gamepads stay active
+  // even when the OS window is not focused.
+  try {
+    mainWindow.webContents.debugger.attach('1.3')
+  } catch { /* already attached */ }
+  mainWindow.on('blur', () => {
+    try {
+      mainWindow?.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true })
+    } catch { /* ignore */ }
+  })
+  mainWindow.on('focus', () => {
+    try {
+      mainWindow?.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: false })
+    } catch { /* ignore */ }
+  })
+  // Also override JS-level visibility for any code that checks it directly
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow?.webContents.executeJavaScript(`
       Object.defineProperty(document, 'visibilityState', { get: () => 'visible' });
@@ -238,6 +254,13 @@ ipcMain.handle('update:check', () => autoUpdater.checkForUpdates().catch(() => {
 // Chromium silently mutes audio when video.play() fires asynchronously (e.g.
 // inside HLS.js's MANIFEST_PARSED callback after an API round-trip).
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+
+// Keep renderer alive and gamepad-accessible even when window loses OS focus.
+// These prevent Chromium from throttling/suspending the renderer process and
+// ensure navigator.getGamepads() continues returning data in the background.
+app.commandLine.appendSwitch('disable-background-timer-throttling')
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {

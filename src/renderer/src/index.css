@@ -105,9 +105,10 @@
 
 /* Gamepad spatial-navigation focus ring */
 .gp-focused {
-  outline: 2px solid rgba(255, 255, 255, 0.7);
+  outline: 2px solid rgba(220, 38, 38, 0.85) !important;
   outline-offset: 2px;
-  border-radius: 8px;
+  border-radius: inherit;
+  box-shadow: 0 0 8px rgba(220, 38, 38, 0.4);
 }
 
 /* Spinning ring (login dot) */
