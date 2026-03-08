@@ -374,12 +374,16 @@ export async function searchSubtitles(params: {
   tmdbId?: number
   language?: string
   type?: 'movie' | 'tv'
+  season?: number
+  episode?: number
 }): Promise<OsSubtitleResult[]> {
   const p = new URLSearchParams()
   if (params.query) p.set('query', params.query)
   if (params.tmdbId != null) p.set('tmdbId', String(params.tmdbId))
   if (params.language) p.set('language', params.language)
   if (params.type) p.set('type', params.type)
+  if (params.season != null) p.set('season', String(params.season))
+  if (params.episode != null) p.set('episode', String(params.episode))
   const res = await request<{ success: boolean; subtitles: OsSubtitleResult[] }>(
     `/subtitle/opensubtitles/search?${p}`
   )

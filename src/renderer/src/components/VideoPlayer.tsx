@@ -797,10 +797,16 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     setOsError('')
     setOsResults([])
     try {
+      // Find current episode's season/episode numbers for precise matching
+      const curEp = job.type === 'tv' && episodeList.length > 0
+        ? episodeList.find((e) => e.jellyfinId === localEpId)
+        : null
       const results = await api.searchSubtitles({
         query: query || osQuery.trim() || undefined,
         tmdbId: job.tmdbId ?? undefined,
         type: job.type === 'tv' ? 'tv' : 'movie',
+        season: curEp?.seasonNumber,
+        episode: curEp?.episodeNumber,
       })
       // Sort by download count descending (most popular first)
       results.sort((a, b) => b.downloadCount - a.downloadCount)
@@ -899,11 +905,11 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   // navigates buttons (on controls row). When a panel is open, DPad navigates
   // within the panel. Volume button opens a vertical slider popup.
   //
-  // Focus zones: 'none' | 'seek' | 'controls' | 'panel' | 'volume'
+  // Focus zones: 'none' | 'seek' | 'controls' | 'panel' | 'volume' | 'upnext'
 
   const currentEpIdx = episodeList.findIndex((ep) => ep.jellyfinId === localEpId)
   const gpFocusRef = useRef<HTMLElement | null>(null)
-  const [gpZone, setGpZone] = useState<'none' | 'seek' | 'controls' | 'panel' | 'volume'>('none')
+  const [gpZone, setGpZone] = useState<'none' | 'seek' | 'controls' | 'panel' | 'volume' | 'upnext'>('none')
   const [gpControlIdx, setGpControlIdx] = useState(0)
   const [showVolumePopup, setShowVolumePopup] = useState(false)
   const panelOpen = showSettings || showSubtitlePanel || showEpisodePanel
@@ -999,6 +1005,27 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       return
     }
 
+    // Up Next overlay: navigate between Play Now and Dismiss buttons
+    if (upNextVisible && nextEpisode) {
+      if (gpZone !== 'upnext') {
+        setGpZone('upnext')
+        const playBtn = containerRef.current?.querySelector<HTMLElement>('[data-upnext-play]')
+        if (playBtn) gpSetFocus(playBtn)
+        return
+      }
+      // Left/right switches between Play Now and Dismiss
+      if (dir === 'left' || dir === 'right') {
+        const overlay = containerRef.current?.querySelector<HTMLElement>('[data-upnext-overlay]')
+        if (overlay) {
+          const btns = Array.from(overlay.querySelectorAll<HTMLElement>('[data-focusable]'))
+          const idx = btns.indexOf(gpFocusRef.current!)
+          const next = dir === 'right' ? Math.min(btns.length - 1, idx + 1) : Math.max(0, idx - 1)
+          gpSetFocus(btns[next])
+        }
+      }
+      return
+    }
+
     // Panel mode: spatial navigation
     if (panelOpen) {
       if (gpZone !== 'panel') {
@@ -1067,6 +1094,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       return
     }
   }, [gpZone, panelOpen, showVolumePopup, volume, muted, gpControlIdx,
+      upNextVisible, nextEpisode,
       gpGetControlButtons, gpGetPanelItems, gpSetFocus, gpPanelMove])
 
   const gpActivate = useCallback(() => {
@@ -1074,6 +1102,11 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     if (gpZone === 'volume' && showVolumePopup) {
       setShowVolumePopup(false)
       setGpZone('controls')
+      return
+    }
+    // Up Next: click focused button (Play Now or Dismiss)
+    if (gpZone === 'upnext' && gpFocusRef.current && document.body.contains(gpFocusRef.current)) {
+      gpFocusRef.current.click()
       return
     }
     // Panel: click focused item
@@ -1092,6 +1125,14 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
 
   const gpBack = useCallback(() => {
     gpSetFocus(null)
+    // Dismiss Up Next overlay
+    if (upNextVisible && gpZone === 'upnext') {
+      upNextDismissedRef.current = true
+      setUpNextDismissed(true)
+      setUpNextVisible(false)
+      setGpZone('none')
+      return
+    }
     // Close volume popup
     if (showVolumePopup) { setShowVolumePopup(false); setGpZone('controls'); return }
     // Close panels
@@ -1102,13 +1143,28 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     if (controlsVisible) { setControlsVisible(false); setGpZone('none'); return }
     handleClose()
   }, [showVolumePopup, showSettings, showSubtitlePanel, showEpisodePanel,
-      controlsVisible, handleClose, gpSetFocus])
+      upNextVisible, gpZone, controlsVisible, handleClose, gpSetFocus])
 
   // When panels open/close, sync zone
   useEffect(() => {
     if (panelOpen) setGpZone('panel')
     else if (gpZone === 'panel') setGpZone('controls')
   }, [panelOpen])
+
+  // Auto-focus Up Next "Play Now" button when overlay appears (gamepad users)
+  useEffect(() => {
+    if (upNextVisible && gpZone !== 'none') {
+      setGpZone('upnext')
+      // Small delay to let the overlay render
+      setTimeout(() => {
+        const playBtn = containerRef.current?.querySelector<HTMLElement>('[data-upnext-play]')
+        if (playBtn) gpSetFocus(playBtn)
+      }, 100)
+    } else if (!upNextVisible && gpZone === 'upnext') {
+      setGpZone('none')
+      gpSetFocus(null)
+    }
+  }, [upNextVisible])
 
   // Volume popup opener (called from volume button click)
   const openVolumePopup = useCallback(() => {
@@ -1214,6 +1270,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
           animate={{ opacity: 1, x: 0 }}
           className="absolute bottom-24 right-6 z-50 w-72 bg-black/90 backdrop-blur-md
                      rounded-xl border border-white/10 p-4 shadow-2xl"
+          data-upnext-overlay
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-start justify-between mb-2">
@@ -1221,6 +1278,8 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
               Up Next
             </span>
             <button
+              data-focusable
+              data-upnext-dismiss
               onClick={() => {
                 upNextDismissedRef.current = true
                 setUpNextDismissed(true)
@@ -1237,6 +1296,8 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
           </p>
           <div className="flex items-center gap-3 mt-3">
             <button
+              data-focusable
+              data-upnext-play
               onClick={() => switchEpisode(nextEpisode)}
               className="flex-1 px-3 py-1.5 bg-white text-black text-xs font-semibold
                          rounded-lg hover:bg-white/90 transition-colors"
@@ -1290,6 +1351,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         transition={{ duration: 0.3 }}
         className="absolute bottom-0 left-0 right-0 px-4 pb-4 pt-16
                    bg-gradient-to-t from-black/90 via-black/40 to-transparent"
+        style={{ pointerEvents: controlsVisible ? 'auto' : 'none' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Title */}
