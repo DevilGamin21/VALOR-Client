@@ -114,6 +114,17 @@ function createWindow(): void {
     }
   })
 
+  // Keep page "visible" even when window is unfocused — the Gamepad API only
+  // returns data when document.visibilityState === 'visible'. This override lets
+  // controllers work while the user is in another window.
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow?.webContents.executeJavaScript(`
+      Object.defineProperty(document, 'visibilityState', { get: () => 'visible' });
+      Object.defineProperty(document, 'hidden', { get: () => false });
+      document.addEventListener('visibilitychange', (e) => e.stopImmediatePropagation(), true);
+    `)
+  })
+
   // Inject Origin/Referer for ALL outgoing requests from the renderer.
   // Electron's file:// protocol sends a null origin, causing CORS failures on
   // both the backend API and Jellyfin's direct HLS stream URLs.

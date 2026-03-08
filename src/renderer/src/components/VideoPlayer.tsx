@@ -17,7 +17,8 @@ import {
   List,
   Moon,
   Globe,
-  Search
+  Search,
+  Check
 } from 'lucide-react'
 import * as api from '@/services/api'
 import type { PlayJob, AudioTrack, SubtitleTrack, EpisodeInfo } from '@/types/media'
@@ -854,6 +855,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
                 title: e.name,
                 episodeNumber: e.episodeNumber,
                 seasonNumber: e.seasonNumber,
+                playedPercentage: e.playedPercentage,
               }))
             setEpisodeList(epInfos)
             setCurrentEpisodeId(job.itemId)
@@ -1159,12 +1161,14 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
 
   const gpBack = useCallback(() => {
     gpSetFocus(null)
-    // Dismiss Up Next overlay
+    // Up Next overlay visible — close player directly
     if (upNextVisible && gpZone === 'upnext') {
       upNextDismissedRef.current = true
       setUpNextDismissed(true)
       setUpNextVisible(false)
+      setControlsVisible(false)
       setGpZone('none')
+      handleClose()
       return
     }
     // Close volume popup
@@ -1737,6 +1741,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
           <div className="max-h-80 overflow-y-auto py-1">
             {episodeList.map((ep) => {
               const isCurrent = localEpId === ep.jellyfinId
+              const isWatched = (ep.playedPercentage ?? 0) >= 90
               const sNum = String(ep.seasonNumber).padStart(2, '0')
               const eNum = String(ep.episodeNumber).padStart(2, '0')
               return (
@@ -1772,6 +1777,11 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
                       {ep.title || `Episode ${ep.episodeNumber}`}
                     </p>
                   </div>
+
+                  {/* Watched badge */}
+                  {isWatched && !isCurrent && (
+                    <Check size={13} className="flex-shrink-0 text-emerald-400/70" />
+                  )}
                 </button>
               )
             })}

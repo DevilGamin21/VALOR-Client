@@ -137,6 +137,7 @@ export interface EpisodeInfo {
   title: string
   episodeNumber: number
   seasonNumber: number
+  playedPercentage?: number
 }
 
 export interface P2PStatus {

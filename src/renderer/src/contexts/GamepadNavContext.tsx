@@ -72,8 +72,8 @@ function getSidebarItems(): Element[] {
 
 /** Get all visible content focusable items (non-sidebar) */
 function getAllContentItems(): Element[] {
-  return Array.from(document.querySelectorAll('main [data-focusable]'))
-    .filter(el => isVisible(el))
+  return Array.from(document.querySelectorAll('[data-focusable]'))
+    .filter(el => isVisible(el) && !isInSidebar(el))
 }
 
 /** Get focusable items within the same row/section as the given element */

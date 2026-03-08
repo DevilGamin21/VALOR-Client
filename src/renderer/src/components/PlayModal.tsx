@@ -298,6 +298,7 @@ export default function PlayModal({ item, onClose }: Props) {
           title: ep.title,
           episodeNumber: ep.episodeNumber,
           seasonNumber: ep.seasonNumber,
+          playedPercentage: ep.playedPercentage,
         }))
       openPlayer(job, startTicks, epInfos, jellyfinId)
       onClose()
