@@ -159,6 +159,7 @@ export default function RootShell() {
             </NavLink>
             {updateReady && (
               <button
+                data-focusable
                 onClick={() => window.electronAPI.updates.install()}
                 title="Update ready — click to restart and update"
                 className={`${iconBase} text-green-400 hover:text-green-300 hover:bg-green-500/15 animate-pulse`}
@@ -168,6 +169,7 @@ export default function RootShell() {
             )}
             {hasUpdate && !updateReady && (
               <button
+                data-focusable
                 onClick={() => mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
                 title="Update downloading…"
                 className={`${iconBase} text-amber-400 hover:text-amber-300 hover:bg-amber-500/10`}

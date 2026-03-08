@@ -141,6 +141,7 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
   const { isOpen } = usePlayer()
   const focusedRef = useRef<Element | null>(null)
   const zoneRef = useRef<Zone>('content')
+  const preModalFocusRef = useRef<Element | null>(null)
 
   // ── Focus management ───────────────────────────────────────────────────
 
@@ -337,8 +338,22 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
 
   const move = useCallback((direction: 'up' | 'down' | 'left' | 'right') => {
     if (getModalRoot()) {
+      // Save pre-modal focus on first modal navigation
+      if (!preModalFocusRef.current && focusedRef.current) {
+        preModalFocusRef.current = focusedRef.current
+      }
       moveInModal(direction)
       return
+    }
+
+    // Modal just closed — restore previous focus if still valid
+    if (preModalFocusRef.current) {
+      const saved = preModalFocusRef.current
+      preModalFocusRef.current = null
+      if (document.body.contains(saved) && isVisible(saved)) {
+        setFocus(saved, isInSidebar(saved) ? 'sidebar' : 'content')
+        return
+      }
     }
 
     const current = focusedRef.current
@@ -351,7 +366,7 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
     } else {
       moveInContent(direction)
     }
-  }, [moveInModal, moveInSidebar, moveInContent])
+  }, [moveInModal, moveInSidebar, moveInContent, setFocus])
 
   // ── A button → activate ────────────────────────────────────────────────
 
@@ -371,11 +386,21 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
       if (last instanceof HTMLElement) {
         clearFocus()
         last.click()
+        // Restore pre-modal focus after modal close animation
+        const saved = preModalFocusRef.current
+        preModalFocusRef.current = null
+        if (saved) {
+          setTimeout(() => {
+            if (document.body.contains(saved) && isVisible(saved)) {
+              setFocus(saved, isInSidebar(saved) ? 'sidebar' : 'content')
+            }
+          }, 100)
+        }
         return
       }
     }
     navigate(-1)
-  }, [navigate, clearFocus])
+  }, [navigate, clearFocus, setFocus])
 
   // ── Gamepad hook ───────────────────────────────────────────────────────
 

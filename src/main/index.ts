@@ -109,7 +109,8 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
-      webSecurity: true
+      webSecurity: true,
+      backgroundThrottling: false   // Keep gamepad polling active when window loses focus
     }
   })
 

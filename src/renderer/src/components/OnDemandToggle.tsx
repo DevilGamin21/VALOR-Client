@@ -16,6 +16,7 @@ export default function OnDemandToggle() {
 
   return (
     <button
+      data-focusable
       onClick={toggle}
       className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
         active

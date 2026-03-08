@@ -841,7 +841,7 @@ export default function PlayModal({ item, onClose }: Props) {
                               key={ep.id}
                               data-focusable={isPlayable ? true : undefined}
                               onClick={isPlayable ? () => { setActiveMenu(null); handleEpisodePlay(ep) } : undefined}
-                              className={`group relative flex items-center gap-3 px-3 py-3.5 rounded-lg transition overflow-hidden ${
+                              className={`group relative flex items-center gap-3 pl-1.5 pr-3 py-3.5 rounded-lg transition overflow-hidden ${
                                 isPlayable
                                   ? 'bg-white/[0.03] hover:bg-white/[0.08] cursor-pointer'
                                   : 'bg-white/[0.02] opacity-50'

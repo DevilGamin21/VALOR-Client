@@ -47,6 +47,9 @@ win:
   sign: null
   signingHashAlgorithms: null
 
+  # Explicit user-level manifest — never triggers UAC prompt
+  requestedExecutionLevel: asInvoker
+
 # ── NSIS installer ────────────────────────────────────────────────────────────
 nsis:
   # Full wizard mode — shows welcome, directory, install, finish pages

@@ -95,6 +95,7 @@ export default function UpdateBanner({ onVisibilityChange }: Props) {
             )}
             {state.stage === 'ready' && (
               <button
+                data-focusable
                 onClick={handleInstall}
                 className="flex-shrink-0 px-3 py-1 rounded-full bg-green-600/80 hover:bg-green-500
                            text-white text-xs font-medium transition-colors"
@@ -104,6 +105,7 @@ export default function UpdateBanner({ onVisibilityChange }: Props) {
             )}
             {state.stage === 'error' && (
               <button
+                data-focusable
                 onClick={() => { window.electronAPI.updates.check(); setState({ stage: 'idle' }) }}
                 className="flex-shrink-0 px-3 py-1 rounded-full bg-white/10 hover:bg-white/20
                            text-white/60 text-xs font-medium transition-colors"

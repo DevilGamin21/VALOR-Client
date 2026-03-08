@@ -857,6 +857,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
               }))
             setEpisodeList(epInfos)
             setCurrentEpisodeId(job.itemId)
+            setLocalEpId(job.itemId)
             break
           }
         }
