@@ -10,6 +10,8 @@ interface PlayerState {
   openPlayer: (job: PlayJob, startPositionTicks?: number, episodes?: EpisodeInfo[], currentEpisodeId?: string) => void
   closePlayer: () => void
   updateJob: (job: PlayJob) => void
+  setEpisodeList: (eps: EpisodeInfo[]) => void
+  setCurrentEpisodeId: (id: string) => void
 }
 
 const PlayerContext = createContext<PlayerState | null>(null)
@@ -41,7 +43,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   return (
     <PlayerContext.Provider
-      value={{ job, startPositionTicks, isOpen, episodeList, currentEpisodeId, openPlayer, closePlayer, updateJob }}
+      value={{ job, startPositionTicks, isOpen, episodeList, currentEpisodeId, openPlayer, closePlayer, updateJob, setEpisodeList, setCurrentEpisodeId }}
     >
       {children}
     </PlayerContext.Provider>

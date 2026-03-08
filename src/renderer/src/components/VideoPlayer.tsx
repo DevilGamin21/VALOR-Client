@@ -89,7 +89,7 @@ const SUBTITLE_FONT_SIZE: Record<SubtitleSize, string> = {
 }
 
 export default function VideoPlayer({ job, startPositionTicks, onClose }: Props) {
-  const { episodeList, currentEpisodeId, updateJob } = usePlayer()
+  const { episodeList, currentEpisodeId, updateJob, setEpisodeList, setCurrentEpisodeId } = usePlayer()
   const { autoplayNext, preferredAudioLang, preferredSubtitleLang, directPlay: settingsDirectPlay, defaultQuality, subtitleSize, subtitleBgOpacity, discordRPC } = useSettings()
 
   const isDirectPlay = !!job.directStreamUrl
@@ -818,18 +818,53 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   }
 
   // Auto-fetch OpenSubtitles on player open (Stremio-style)
+  // For TV: wait until episodeList is populated so season/episode numbers are available
   const osFetchedRef = useRef(false)
   useEffect(() => {
     if (osFetchedRef.current) return
+    if (job.type === 'tv' && episodeList.length === 0) return // wait for episode list
     osFetchedRef.current = true
     searchOsSubs(job.seriesName || job.title)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job.itemId])
+  }, [job.itemId, episodeList.length])
 
   // Reset auto-fetch flag on episode switch
   useEffect(() => {
     osFetchedRef.current = false
   }, [localEpId])
+
+  // Auto-fetch episode list when opened for a TV show without episodes (e.g. from Continue Watching)
+  useEffect(() => {
+    if (episodeList.length > 0 || job.type !== 'tv' || !job.seriesId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const seasons = await api.getSeasons(job.seriesId!)
+        if (cancelled || seasons.length === 0) return
+        // Find the season that contains the current episode — try each season
+        for (const season of seasons) {
+          const eps = await api.getEpisodes(job.seriesId!, season.id)
+          if (cancelled) return
+          const match = eps.find((e) => e.jellyfinId === job.itemId)
+          if (match) {
+            const epInfos: EpisodeInfo[] = eps
+              .filter((e) => e.onDemand && e.jellyfinId)
+              .map((e) => ({
+                jellyfinId: e.jellyfinId!,
+                title: e.name,
+                episodeNumber: e.episodeNumber,
+                seasonNumber: e.seasonNumber,
+              }))
+            setEpisodeList(epInfos)
+            setCurrentEpisodeId(job.itemId)
+            break
+          }
+        }
+      } catch {}
+    })()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job.itemId])
 
   // Auto-select from OpenSubtitles when results arrive (if no subtitle already active)
   const osAutoSelectedRef = useRef(false)

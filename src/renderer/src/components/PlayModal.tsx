@@ -412,7 +412,7 @@ export default function PlayModal({ item, onClose }: Props) {
       }))
 
   // Show play/P2P action row for movies + non-library TV (library TV uses episode list)
-  const showActionRow = item.type === 'movie' || (item.type === 'tv' && !item.onDemand)
+  const showActionRow = item.type === 'movie'
 
   return (
     <motion.div
@@ -720,13 +720,39 @@ export default function PlayModal({ item, onClose }: Props) {
           {/* TV: seasons + episodes (all TV shows) */}
           {item.type === 'tv' && (
             <div>
-              {/* Header row: label + watchlist */}
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-white/50">Seasons</span>
+              {/* Non-library TV: stream + request buttons (hidden for locally available shows) */}
+              {!item.onDemand && !showResume && (
+                <div className="flex gap-2 mb-4">
+                  {!p2pHash && (
+                    <button
+                      data-focusable
+                      onClick={startP2P}
+                      disabled={p2pLoading}
+                      className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
+                                 bg-purple-700 hover:bg-purple-600 text-white font-semibold text-sm transition disabled:opacity-50"
+                    >
+                      {p2pLoading ? <Loader2 size={16} className="animate-spin" /> : <Wifi size={16} />}
+                      Stream (P2P)
+                    </button>
+                  )}
+                  <button
+                    data-focusable
+                    onClick={() => item.tmdbId && api.requestMedia({ title: item.title, tmdbId: item.tmdbId, type: item.type })}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
+                               bg-white/10 hover:bg-white/15 text-white text-sm transition"
+                  >
+                    <Plus size={16} />
+                    Request
+                  </button>
+                </div>
+              )}
+
+              {/* Seasons row: watchlist button + season tabs */}
+              <div className="flex items-center gap-2 mb-4">
                 <button
                   data-focusable
                   onClick={() => toggle(item)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg
+                  className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg
                              bg-white/10 hover:bg-white/15 text-white/70 text-sm transition"
                 >
                   {inWatchlist ? (
@@ -735,6 +761,25 @@ export default function PlayModal({ item, onClose }: Props) {
                     <><Plus size={14} /> Save</>
                   )}
                 </button>
+                <div className="h-4 w-px bg-white/10 flex-shrink-0" />
+                <div className="flex gap-2 overflow-x-auto pb-0 no-scrollbar">
+                  {loadingSeasons ? (
+                    <Loader2 size={16} className="animate-spin text-white/30 my-1" />
+                  ) : displaySeasons.map((s) => (
+                    <button
+                      data-focusable
+                      key={s.key}
+                      onClick={() => setSelectedSeason(s.seasonNumber)}
+                      className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                        selectedSeason === s.seasonNumber
+                          ? 'bg-red-600 text-white'
+                          : 'bg-white/10 text-white/60 hover:bg-white/15'
+                      }`}
+                    >
+                      {s.title}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {loadingSeasons ? (
@@ -743,23 +788,6 @@ export default function PlayModal({ item, onClose }: Props) {
                 </div>
               ) : displaySeasons.length > 0 ? (
                 <>
-                  {/* Season tabs */}
-                  <div className="flex gap-2 mb-4 overflow-x-auto pb-1 no-scrollbar">
-                    {displaySeasons.map((s) => (
-                      <button
-                        data-focusable
-                        key={s.key}
-                        onClick={() => setSelectedSeason(s.seasonNumber)}
-                        className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-                          selectedSeason === s.seasonNumber
-                            ? 'bg-red-600 text-white'
-                            : 'bg-white/10 text-white/60 hover:bg-white/15'
-                        }`}
-                      >
-                        {s.title}
-                      </button>
-                    ))}
-                  </div>
 
                   {/* Episode list */}
                   {loadingEpisodes ? (
@@ -802,7 +830,7 @@ export default function PlayModal({ item, onClose }: Props) {
                         )}
                       </AnimatePresence>
 
-                      <div className="flex flex-col gap-1 max-h-80 overflow-y-auto pr-1">
+                      <div className="flex flex-col gap-1.5 max-h-96 overflow-y-auto pr-1">
                         {episodes.map((ep) => {
                           const pct = ep.playedPercentage ?? 0
                           const isWatched = pct >= 90
@@ -813,32 +841,32 @@ export default function PlayModal({ item, onClose }: Props) {
                               key={ep.id}
                               data-focusable={isPlayable ? true : undefined}
                               onClick={isPlayable ? () => { setActiveMenu(null); handleEpisodePlay(ep) } : undefined}
-                              className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition overflow-hidden ${
+                              className={`group relative flex items-center gap-3 px-3 py-3.5 rounded-lg transition overflow-hidden ${
                                 isPlayable
                                   ? 'bg-white/[0.03] hover:bg-white/[0.08] cursor-pointer'
                                   : 'bg-white/[0.02] opacity-50'
                               }`}
                             >
                               {/* Episode number + play icon overlay */}
-                              <div className="flex-shrink-0 w-8 h-8 rounded-md bg-white/[0.06] flex items-center justify-center relative">
-                                <span className={`text-xs font-bold tabular-nums transition ${
+                              <div className="flex-shrink-0 w-10 h-10 rounded-md bg-white/[0.06] flex items-center justify-center relative">
+                                <span className={`text-sm font-bold tabular-nums transition ${
                                   isPlayable ? 'text-white/40 group-hover:opacity-0' : 'text-white/20'
                                 }`}>
                                   {ep.episodeNumber}
                                 </span>
                                 {isPlayable && (
-                                  <Play size={12} fill="white" className="text-white absolute opacity-0 group-hover:opacity-100 transition ml-0.5" />
+                                  <Play size={14} fill="white" className="text-white absolute opacity-0 group-hover:opacity-100 transition ml-0.5" />
                                 )}
                               </div>
 
                               {/* Title + status */}
                               <div className="flex-1 min-w-0">
-                                <p className={`text-[13px] font-medium truncate leading-snug ${ep.onDemand ? 'text-white/90' : 'text-white/30'}`}>
+                                <p className={`text-sm font-medium truncate leading-snug ${ep.onDemand ? 'text-white/90' : 'text-white/30'}`}>
                                   {ep.title}
                                 </p>
                                 {/* Progress bar */}
                                 {hasProgress && (
-                                  <div className="mt-1.5 h-[3px] w-full max-w-[120px] bg-white/10 rounded-full overflow-hidden">
+                                  <div className="mt-2 h-1 w-full max-w-[140px] bg-white/10 rounded-full overflow-hidden">
                                     <div className="h-full bg-red-500 rounded-full" style={{ width: `${pct}%` }} />
                                   </div>
                                 )}
