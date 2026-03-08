@@ -58,6 +58,7 @@ export interface PlayJob {
    *  and track switching is done via native mpv aid/sid commands. */
   directStreamUrl?: string
   playSessionId: string | null
+  deviceId?: string
   audioTracks: AudioTrack[]
   subtitleTracks: SubtitleTrack[]
   title: string

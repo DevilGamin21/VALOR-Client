@@ -552,6 +552,7 @@ export default function PlayModal({ item, onClose }: Props) {
                       )}
                       {digitalReleased === true && !p2pHash && (
                         <button
+                          data-focusable
                           onClick={startP2P}
                           disabled={p2pLoading}
                           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
@@ -573,6 +574,7 @@ export default function PlayModal({ item, onClose }: Props) {
                     /* Non-library TV show: P2P at series level */
                     !p2pHash && (
                       <button
+                        data-focusable
                         onClick={startP2P}
                         disabled={p2pLoading}
                         className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
@@ -585,6 +587,7 @@ export default function PlayModal({ item, onClose }: Props) {
                   )}
 
                   <button
+                    data-focusable
                     onClick={() => item.tmdbId && api.requestMedia({ title: item.title, tmdbId: item.tmdbId, type: item.type })}
                     className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
                                bg-white/10 hover:bg-white/15 text-white text-sm transition"
@@ -662,6 +665,7 @@ export default function PlayModal({ item, onClose }: Props) {
                     </p>
                     {showRetry && (
                       <button
+                        data-focusable
                         onClick={handlePrunaRetry}
                         className="text-xs text-white/50 hover:text-white px-2 py-1 rounded bg-white/10 transition flex-shrink-0"
                       >
@@ -671,6 +675,7 @@ export default function PlayModal({ item, onClose }: Props) {
                   </div>
                 ) : isPremium ? (
                   <button
+                    data-focusable
                     onClick={handlePrunaInstall}
                     disabled={prunaLoading}
                     className="w-full flex items-center justify-center gap-2 py-2 rounded-lg

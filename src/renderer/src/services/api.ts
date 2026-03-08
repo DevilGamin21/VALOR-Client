@@ -145,6 +145,10 @@ export interface PlayJobRequest {
    *  buffering when switching streams mid-playback — without it FFmpeg starts at 0 and
    *  HLS.js has to wait for it to encode up to the current playback position. */
   startTimeTicks?: number
+  /** Previous session IDs — sent when switching audio/quality/subs mid-playback so the
+   *  backend can explicitly kill the old FFmpeg before starting a new transcode. */
+  previousPlaySessionId?: string
+  previousDeviceId?: string
 }
 
 export async function startPlayJob(body: PlayJobRequest): Promise<PlayJob> {

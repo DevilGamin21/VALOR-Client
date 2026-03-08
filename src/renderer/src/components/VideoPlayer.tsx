@@ -279,6 +279,8 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
           audioStreamIndex: savedPrefs.audio,
           maxBitrate: QUALITY_BITRATES[defaultQuality],
           startTimeTicks: startPositionTicks > 0 ? startPositionTicks : undefined,
+          previousPlaySessionId: job.playSessionId || undefined,
+          previousDeviceId: job.deviceId,
         }).then((newJob) => {
           updateJob(newJob)
           loadSrc(newJob.hlsUrl, savedTime)
@@ -630,6 +632,8 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         audioStreamIndex: track.index,
         maxBitrate: QUALITY_PRESETS[activeQuality].maxBitrate || undefined,
         startTimeTicks: savedTime > 0 ? Math.floor(savedTime * 10_000_000) : undefined,
+        previousPlaySessionId: job.playSessionId || undefined,
+        previousDeviceId: job.deviceId,
       })
       updateJob(newJob)
       loadSrc(newJob.hlsUrl, savedTime)
@@ -657,7 +661,10 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
           audioStreamIndex: activeAudio,
           maxBitrate: QUALITY_PRESETS[activeQuality].maxBitrate || undefined,
           startTimeTicks: savedTime > 0 ? Math.floor(savedTime * 10_000_000) : undefined,
+          previousPlaySessionId: job.playSessionId || undefined,
+          previousDeviceId: job.deviceId,
         })
+        updateJob(newJob)
         loadSrc(newJob.hlsUrl, savedTime)
       } catch {
         setError('Failed to switch subtitle')
@@ -687,7 +694,10 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         maxBitrate: preset.maxBitrate || undefined,
         audioStreamIndex: activeAudio,
         startTimeTicks: savedTime > 0 ? Math.floor(savedTime * 10_000_000) : undefined,
+        previousPlaySessionId: job.playSessionId || undefined,
+        previousDeviceId: job.deviceId,
       })
+      updateJob(newJob)
       loadSrc(newJob.hlsUrl, savedTime)
     } catch {
       setError('Failed to switch quality')
@@ -734,6 +744,8 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         itemId: ep.jellyfinId,
         directPlay: settingsDirectPlay,
         maxBitrate: settingsDirectPlay ? undefined : QUALITY_BITRATES[defaultQuality],
+        previousPlaySessionId: job.playSessionId || undefined,
+        previousDeviceId: job.deviceId,
       })
       updateJob(newJob)
       if (newJob.directStreamUrl) {
