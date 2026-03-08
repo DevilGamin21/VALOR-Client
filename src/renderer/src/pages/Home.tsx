@@ -153,7 +153,8 @@ export default function Home() {
 
   // Click handler for Continue Watching items — shows resume prompt
   function handleCwClick(item: UnifiedMedia) {
-    if (item.positionTicks && item.positionTicks > 0) {
+    // Show resume overlay for items with progress OR "begin next episode" TV entries
+    if ((item.positionTicks && item.positionTicks > 0) || (item.type === 'tv' && item.resumeMediaId)) {
       setResumeItem(item)
     } else {
       setSelected(item)
@@ -339,26 +340,41 @@ export default function Home() {
                   </p>
                 )}
                 <div className="flex flex-col gap-2 mt-3">
-                  <button
-                    data-focusable
-                    onClick={() => handleResume(resumeItem.positionTicks!)}
-                    disabled={resumeLoading}
-                    className="flex items-center justify-center gap-2 py-2.5 rounded-lg
-                               bg-white text-black font-semibold text-sm hover:bg-white/90 transition disabled:opacity-50"
-                  >
-                    {resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill="black" />}
-                    Resume at {formatTicks(resumeItem.positionTicks!)}
-                  </button>
-                  <button
-                    data-focusable
-                    onClick={() => handleResume(0)}
-                    disabled={resumeLoading}
-                    className="flex items-center justify-center gap-2 py-2.5 rounded-lg
-                               bg-white/10 text-white text-sm hover:bg-white/15 transition disabled:opacity-50"
-                  >
-                    <RotateCcw size={14} />
-                    Start from Beginning
-                  </button>
+                  {(resumeItem.playedPercentage ?? 0) >= 5 ? (
+                    <>
+                      <button
+                        data-focusable
+                        onClick={() => handleResume(resumeItem.positionTicks!)}
+                        disabled={resumeLoading}
+                        className="flex items-center justify-center gap-2 py-2.5 rounded-lg
+                                   bg-white text-black font-semibold text-sm hover:bg-white/90 transition disabled:opacity-50"
+                      >
+                        {resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill="black" />}
+                        Resume at {formatTicks(resumeItem.positionTicks!)}
+                      </button>
+                      <button
+                        data-focusable
+                        onClick={() => handleResume(0)}
+                        disabled={resumeLoading}
+                        className="flex items-center justify-center gap-2 py-2.5 rounded-lg
+                                   bg-white/10 text-white text-sm hover:bg-white/15 transition disabled:opacity-50"
+                      >
+                        <RotateCcw size={14} />
+                        Start from Beginning
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      data-focusable
+                      onClick={() => handleResume(0)}
+                      disabled={resumeLoading}
+                      className="flex items-center justify-center gap-2 py-2.5 rounded-lg
+                                 bg-white text-black font-semibold text-sm hover:bg-white/90 transition disabled:opacity-50"
+                    >
+                      {resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill="black" />}
+                      Begin Episode
+                    </button>
+                  )}
                   <button
                     data-focusable
                     onClick={() => { setSelected(resumeItem); setResumeItem(null) }}
