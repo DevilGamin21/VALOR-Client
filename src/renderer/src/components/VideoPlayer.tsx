@@ -112,6 +112,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pausedAtRef = useRef<number | null>(null)
+  const markedPlayedRef = useRef(false)
 
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -345,7 +346,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         playSessionId: job.playSessionId
       }).catch(() => {})
       api.reportUserProgress({
-        mediaId: job.seriesId || job.itemId,
+        mediaId: job.itemId,
         positionTicks: posTicks,
         durationTicks: durTicks,
         title: job.seriesName || job.title,
@@ -354,6 +355,12 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         tmdbId: job.tmdbId,
         seriesId: job.seriesId,
       }).catch(() => {})
+      // Mark as played in Jellyfin when >90% watched
+      const pct = durTicks > 0 ? (posTicks / durTicks) * 100 : 0
+      if (pct > 90 && !markedPlayedRef.current) {
+        markedPlayedRef.current = true
+        api.markItemPlayed(job.itemId).catch(() => {})
+      }
     }, 10_000)
 
     return () => {
@@ -398,7 +405,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         isStopped: true
       }).catch(() => {})
       api.reportUserProgress({
-        mediaId: job.seriesId || job.itemId,
+        mediaId: job.itemId,
         positionTicks: posTicks,
         durationTicks: durTicks,
         title: job.seriesName || job.title,
@@ -551,6 +558,11 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   function onPlaying() { setBuffering(false) }
 
   function onEnded() {
+    // Mark as played when video reaches the end
+    if (!markedPlayedRef.current) {
+      markedPlayedRef.current = true
+      api.markItemPlayed(job.itemId).catch(() => {})
+    }
     // Sleep timer takes priority over autoplay
     if (sleepOption === 'end') {
       handleClose()
@@ -736,6 +748,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     setUpNextVisible(false)
     setUpNextDismissed(false)
     upNextDismissedRef.current = false
+    markedPlayedRef.current = false
 
     setShowEpisodePanel(false)
     setBuffering(true)
@@ -1231,6 +1244,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
                                  text-white text-xs px-2 py-1.5 outline-none"
                     />
                     <button
+                      data-focusable
                       onClick={searchOsSubs}
                       disabled={osSearching}
                       className="flex-shrink-0 px-2.5 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-600
@@ -1259,6 +1273,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
                   {!osSearching && osResults.map((sub) => (
                     <button
                       key={sub.id}
+                      data-focusable
                       onClick={() => applyOsSub(sub)}
                       className={`w-full text-left px-3 py-2 rounded-lg transition ${
                         activeOsSubId === sub.id

@@ -314,6 +314,7 @@ export default function Home() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
             onClick={() => setResumeItem(null)}
+            data-modal-close
           >
             <motion.div
               initial={{ scale: 0.92, opacity: 0 }}
@@ -339,6 +340,7 @@ export default function Home() {
                 )}
                 <div className="flex flex-col gap-2 mt-3">
                   <button
+                    data-focusable
                     onClick={() => handleResume(resumeItem.positionTicks!)}
                     disabled={resumeLoading}
                     className="flex items-center justify-center gap-2 py-2.5 rounded-lg
@@ -348,6 +350,7 @@ export default function Home() {
                     Resume at {formatTicks(resumeItem.positionTicks!)}
                   </button>
                   <button
+                    data-focusable
                     onClick={() => handleResume(0)}
                     disabled={resumeLoading}
                     className="flex items-center justify-center gap-2 py-2.5 rounded-lg
@@ -357,6 +360,7 @@ export default function Home() {
                     Start from Beginning
                   </button>
                   <button
+                    data-focusable
                     onClick={() => { setSelected(resumeItem); setResumeItem(null) }}
                     className="flex items-center justify-center gap-2 py-2.5 rounded-lg
                                bg-white/5 text-white/60 text-sm hover:bg-white/10 hover:text-white/80 transition"

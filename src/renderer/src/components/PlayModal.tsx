@@ -596,6 +596,7 @@ export default function PlayModal({ item, onClose }: Props) {
               )}
 
               <button
+                data-focusable
                 onClick={() => toggle(item)}
                 title={inWatchlist ? 'Remove from watchlist' : 'Add to watchlist'}
                 className="w-10 h-10 rounded-lg bg-white/10 hover:bg-white/15 flex items-center justify-center transition"
@@ -718,6 +719,7 @@ export default function PlayModal({ item, onClose }: Props) {
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-white/50">Seasons</span>
                 <button
+                  data-focusable
                   onClick={() => toggle(item)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg
                              bg-white/10 hover:bg-white/15 text-white/70 text-sm transition"
@@ -771,12 +773,14 @@ export default function PlayModal({ item, onClose }: Props) {
                             className="mb-3 flex gap-2"
                           >
                             <button
+                              data-focusable
                               onClick={() => { const ep = resumeEp; setResumeEp(null); playEpisode(ep.jellyfinId, ep.ticks) }}
                               className="flex-1 py-2 rounded-lg bg-white text-black font-semibold text-sm hover:bg-white/90 transition"
                             >
                               Continue from {formatTicks(resumeEp.ticks)}
                             </button>
                             <button
+                              data-focusable
                               onClick={() => { const ep = resumeEp; setResumeEp(null); playEpisode(ep.jellyfinId, 0) }}
                               className="flex-1 py-2 rounded-lg bg-white/10 text-white text-sm hover:bg-white/15 transition"
                             >

@@ -22,7 +22,6 @@ function center(r: DOMRect) {
 function isVisible(el: Element): boolean {
   const r = el.getBoundingClientRect()
   if (r.width === 0 || r.height === 0) return false
-  // Element must be at least partially inside the viewport
   return r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth
 }
 
@@ -35,7 +34,6 @@ function findNearest(from: DOMRect | null, direction: Direction, candidates: Ele
     const r = el.getBoundingClientRect()
     const tc = center(r)
 
-    // Filter by direction
     switch (direction) {
       case 'up':    if (tc.y >= fc.y - 1) continue; break
       case 'down':  if (tc.y <= fc.y + 1) continue; break
@@ -43,7 +41,6 @@ function findNearest(from: DOMRect | null, direction: Direction, candidates: Ele
       case 'right': if (tc.x <= fc.x + 1) continue; break
     }
 
-    // Score: main-axis distance + cross-axis distance * 3
     let mainDist: number, crossDist: number
     if (direction === 'up' || direction === 'down') {
       mainDist = Math.abs(tc.y - fc.y)
@@ -73,7 +70,6 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
   // ── Focus management ───────────────────────────────────────────────────
 
   const setFocus = useCallback((el: Element | null) => {
-    // Remove from old
     if (focusedRef.current) {
       focusedRef.current.classList.remove('gp-focused')
     }
@@ -105,21 +101,43 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
 
   function ensureFocus(): Element | null {
     if (focusedRef.current) {
-      // Check it's still in the DOM and visible
       if (document.body.contains(focusedRef.current) && isVisible(focusedRef.current)) {
         return focusedRef.current
       }
-      // Lost — clear it
       clearFocus()
     }
     return null
   }
 
-  // ── Get all focusable candidates ───────────────────────────────────────
+  // ── Get focusable candidates — scoped to topmost modal if one is open ──
 
   function getCandidates(): Element[] {
-    const all = document.querySelectorAll('[data-focusable]')
-    return Array.from(all).filter(isVisible)
+    // If a modal (z-50 fixed overlay) is open, restrict navigation to its contents
+    const modals = document.querySelectorAll('[data-modal-close]')
+    if (modals.length > 0) {
+      // Find the modal container — walk up from the close button to the fixed overlay
+      const closeBtn = modals[modals.length - 1]
+      let modalRoot: Element | null = closeBtn
+      while (modalRoot && modalRoot !== document.body) {
+        const style = window.getComputedStyle(modalRoot)
+        if (style.position === 'fixed' && modalRoot.classList.contains('z-50')) break
+        modalRoot = modalRoot.parentElement
+      }
+      if (modalRoot && modalRoot !== document.body) {
+        return Array.from(modalRoot.querySelectorAll('[data-focusable]')).filter(isVisible)
+      }
+    }
+    // No modal — all visible focusable elements
+    return Array.from(document.querySelectorAll('[data-focusable]')).filter(isVisible)
+  }
+
+  // ── Scroll the main content area ──────────────────────────────────────
+
+  function scrollMainContent(direction: 'up' | 'down') {
+    const main = document.querySelector('main')
+    if (!main) return
+    const amount = direction === 'down' ? 300 : -300
+    main.scrollBy({ top: amount, behavior: 'smooth' })
   }
 
   // ── Move focus ─────────────────────────────────────────────────────────
@@ -131,14 +149,21 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
     if (candidates.length === 0) return
 
     if (!current) {
-      // No focus yet — pick the first visible candidate
       setFocus(candidates[0])
       return
     }
 
     const from = current.getBoundingClientRect()
     const next = findNearest(from, direction, candidates)
-    if (next) setFocus(next)
+
+    if (next) {
+      setFocus(next)
+    } else if (direction === 'down') {
+      // No focusable element below — scroll the page down
+      scrollMainContent('down')
+    } else if (direction === 'up') {
+      scrollMainContent('up')
+    }
   }, [setFocus])
 
   // ── A button → activate ────────────────────────────────────────────────
@@ -153,18 +178,18 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
   // ── B button → close modal or go back ──────────────────────────────────
 
   const goBack = useCallback(() => {
-    // Find topmost modal close button
     const closeButtons = document.querySelectorAll('[data-modal-close]')
     if (closeButtons.length > 0) {
       const last = closeButtons[closeButtons.length - 1]
       if (last instanceof HTMLElement) {
+        // Clear focus before closing so it doesn't stick to removed element
+        clearFocus()
         last.click()
         return
       }
     }
-    // No modal — navigate back
     navigate(-1)
-  }, [navigate])
+  }, [navigate, clearFocus])
 
   // ── Gamepad hook ───────────────────────────────────────────────────────
 
