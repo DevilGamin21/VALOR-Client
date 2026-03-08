@@ -371,6 +371,11 @@ export default function Settings() {
           Resets quality, language, and autoplay preferences. Direct Play is restored to your hardware-detected default.
         </p>
       </section>
+
+      {/* ── Version ──────────────────────────────────────────────────────────── */}
+      <div className="text-center text-xs text-white/20 pb-4">
+        VALOR v{__APP_VERSION__}
+      </div>
     </div>
   )
 }
