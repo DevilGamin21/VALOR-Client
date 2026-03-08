@@ -792,32 +792,66 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
 
   // ─── OpenSubtitles ──────────────────────────────────────────────────────────
 
-  async function searchOsSubs() {
+  async function searchOsSubs(query?: string) {
     setOsSearching(true)
     setOsError('')
     setOsResults([])
     try {
       const results = await api.searchSubtitles({
-        query: osQuery.trim() || job.seriesName || job.title,
+        query: query || osQuery.trim() || undefined,
+        tmdbId: job.tmdbId ?? undefined,
+        type: job.type === 'tv' ? 'tv' : 'movie',
       })
       // Sort by download count descending (most popular first)
       results.sort((a, b) => b.downloadCount - a.downloadCount)
       setOsResults(results)
-      if (results.length === 0) setOsError('No subtitles found')
+      if (results.length === 0 && query) setOsError('No subtitles found')
     } catch {
-      setOsError('Search failed')
+      if (query) setOsError('Search failed')
     } finally {
       setOsSearching(false)
     }
   }
 
-  // Auto-search when the OS section is first expanded
+  // Auto-fetch OpenSubtitles on player open (Stremio-style)
+  const osFetchedRef = useRef(false)
   useEffect(() => {
-    if (!osSearchOpen) return
-    if (osResults.length > 0 || osSearching) return
-    searchOsSubs()
+    if (osFetchedRef.current) return
+    osFetchedRef.current = true
+    searchOsSubs(job.seriesName || job.title)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [osSearchOpen])
+  }, [job.itemId])
+
+  // Reset auto-fetch flag on episode switch
+  useEffect(() => {
+    osFetchedRef.current = false
+  }, [localEpId])
+
+  // Auto-select from OpenSubtitles when results arrive (if no subtitle already active)
+  const osAutoSelectedRef = useRef(false)
+  useEffect(() => {
+    if (osAutoSelectedRef.current) return
+    if (osResults.length === 0) return
+    // Don't auto-select if user already has a subtitle active
+    if (activeSub !== null || activeOsSubId !== null) return
+    // Don't auto-select if preferred lang is off
+    if (preferredSubtitleLang === 'off') return
+    // Check if an embedded track already matched (it would have been set in the init effect)
+    const hasEmbeddedMatch = preferredSubtitleLang !== 'auto' && job.subtitleTracks.some(
+      (t) => t.language?.toLowerCase().startsWith(preferredSubtitleLang) && !t.isImageBased
+    )
+    if (hasEmbeddedMatch) return
+    // Find a matching OS result
+    const lang = preferredSubtitleLang === 'auto' ? 'en' : preferredSubtitleLang
+    const match = osResults.find(
+      (s) => s.language?.toLowerCase().startsWith(lang) && s.fileId
+    )
+    if (match) {
+      osAutoSelectedRef.current = true
+      applyOsSub(match)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [osResults])
 
   async function applyOsSub(sub: OsSubtitleResult) {
     if (!sub.fileId) { setOsError('No file ID for this subtitle'); return }
@@ -859,10 +893,21 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
 
   const progress = duration > 0 ? currentTime / duration : 0
 
-  // ─── Gamepad / controller support (spatial navigation) ────────────────────
+  // ─── Gamepad / controller support (TV-remote style) ────────────────────────
+  // Any DPad input shows HUD. Two focus rows: seek bar + controls bar.
+  // DPad up/down moves between rows. Left/right seeks (on seek row) or
+  // navigates buttons (on controls row). When a panel is open, DPad navigates
+  // within the panel. Volume button opens a vertical slider popup.
+  //
+  // Focus zones: 'none' | 'seek' | 'controls' | 'panel' | 'volume'
 
   const currentEpIdx = episodeList.findIndex((ep) => ep.jellyfinId === localEpId)
   const gpFocusRef = useRef<HTMLElement | null>(null)
+  const [gpZone, setGpZone] = useState<'none' | 'seek' | 'controls' | 'panel' | 'volume'>('none')
+  const [gpControlIdx, setGpControlIdx] = useState(0)
+  const [showVolumePopup, setShowVolumePopup] = useState(false)
+  const panelOpen = showSettings || showSubtitlePanel || showEpisodePanel
+  const seekHoldCount = useRef(0)
 
   const gpSetFocus = useCallback((el: HTMLElement | null) => {
     if (gpFocusRef.current) gpFocusRef.current.classList.remove('gp-focused')
@@ -877,37 +922,52 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   useEffect(() => {
     const c = containerRef.current
     if (!c) return
-    const onMouse = () => gpSetFocus(null)
+    const onMouse = () => {
+      gpSetFocus(null)
+      setGpZone('none')
+      setShowVolumePopup(false)
+    }
     c.addEventListener('mousemove', onMouse, { passive: true })
     return () => c.removeEventListener('mousemove', onMouse)
   }, [gpSetFocus])
 
-  const gpGetCandidates = useCallback((): HTMLElement[] => {
+  // Get visible panel focusable items
+  const gpGetPanelItems = useCallback((): HTMLElement[] => {
     if (!containerRef.current) return []
-    const all = containerRef.current.querySelectorAll<HTMLElement>('[data-focusable]')
-    return Array.from(all).filter((el) => {
+    // Find the active panel container (settings, subtitle, or episode panel)
+    const panels = containerRef.current.querySelectorAll<HTMLElement>('.z-30 [data-focusable]')
+    return Array.from(panels).filter((el) => {
       const r = el.getBoundingClientRect()
       return r.width > 0 && r.height > 0
     })
   }, [])
 
-  const gpMove = useCallback((dir: 'up' | 'down' | 'left' | 'right') => {
-    const candidates = gpGetCandidates()
-    if (candidates.length === 0) return
+  // Get control bar buttons (data-gp-control)
+  const gpGetControlButtons = useCallback((): HTMLElement[] => {
+    if (!containerRef.current) return []
+    return Array.from(containerRef.current.querySelectorAll<HTMLElement>('[data-gp-control]')).filter((el) => {
+      const r = el.getBoundingClientRect()
+      return r.width > 0 && r.height > 0
+    })
+  }, [])
+
+  // Spatial nav within panel
+  const gpPanelMove = useCallback((dir: 'up' | 'down' | 'left' | 'right') => {
+    const items = gpGetPanelItems()
+    if (items.length === 0) return
     const current = gpFocusRef.current
-    if (!current || !document.body.contains(current)) {
-      gpSetFocus(candidates[0])
+    if (!current || !items.includes(current)) {
+      gpSetFocus(items[0])
       return
     }
     const from = current.getBoundingClientRect()
     const fc = { x: from.left + from.width / 2, y: from.top + from.height / 2 }
     let best: HTMLElement | null = null
     let bestScore = Infinity
-    for (const el of candidates) {
+    for (const el of items) {
       if (el === current) continue
       const r = el.getBoundingClientRect()
       const tc = { x: r.left + r.width / 2, y: r.top + r.height / 2 }
-      // Filter by direction
       if (dir === 'up' && tc.y >= fc.y - 1) continue
       if (dir === 'down' && tc.y <= fc.y + 1) continue
       if (dir === 'left' && tc.x >= fc.x - 1) continue
@@ -918,44 +978,164 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       if (score < bestScore) { bestScore = score; best = el }
     }
     if (best) gpSetFocus(best)
-  }, [gpGetCandidates, gpSetFocus])
+  }, [gpGetPanelItems, gpSetFocus])
+
+  // Main DPad handler
+  const gpDpad = useCallback((dir: 'up' | 'down' | 'left' | 'right', isRepeat = false) => {
+    showControls()
+
+    // Volume popup mode: up/down adjusts volume, any other direction closes
+    if (gpZone === 'volume' && showVolumePopup) {
+      if (dir === 'up') {
+        changeVolume(Math.min(1, (muted ? 0 : volume) + 0.05))
+        if (muted) setMuted(false)
+      } else if (dir === 'down') {
+        changeVolume(Math.max(0, (muted ? 0 : volume) - 0.05))
+      } else {
+        // Left/right exits volume popup back to controls
+        setShowVolumePopup(false)
+        setGpZone('controls')
+      }
+      return
+    }
+
+    // Panel mode: spatial navigation
+    if (panelOpen) {
+      if (gpZone !== 'panel') {
+        setGpZone('panel')
+        const items = gpGetPanelItems()
+        if (items.length > 0) gpSetFocus(items[0])
+        return
+      }
+      gpPanelMove(dir)
+      return
+    }
+
+    // No HUD visible yet — show it and focus controls
+    if (gpZone === 'none') {
+      setGpZone('controls')
+      // Focus first control button
+      const btns = gpGetControlButtons()
+      if (btns.length > 0) {
+        setGpControlIdx(0)
+        gpSetFocus(btns[0])
+      }
+      return
+    }
+
+    // Seek bar row
+    if (gpZone === 'seek') {
+      if (dir === 'left' || dir === 'right') {
+        if (isRepeat) seekHoldCount.current++
+        else seekHoldCount.current = 0
+        const delta = seekHoldCount.current > 3 ? 30 : 10
+        seek(dir === 'left' ? -delta : delta)
+      } else if (dir === 'down') {
+        setGpZone('controls')
+        gpSetFocus(null)
+        const btns = gpGetControlButtons()
+        if (btns.length > 0) {
+          const idx = Math.min(gpControlIdx, btns.length - 1)
+          setGpControlIdx(idx)
+          gpSetFocus(btns[idx])
+        }
+      }
+      // Up from seek = do nothing (top row)
+      return
+    }
+
+    // Controls bar row
+    if (gpZone === 'controls') {
+      if (dir === 'left' || dir === 'right') {
+        const btns = gpGetControlButtons()
+        if (btns.length === 0) return
+        const nextIdx = dir === 'left'
+          ? Math.max(0, gpControlIdx - 1)
+          : Math.min(btns.length - 1, gpControlIdx + 1)
+        setGpControlIdx(nextIdx)
+        gpSetFocus(btns[nextIdx])
+      } else if (dir === 'up') {
+        // Move to seek bar
+        setGpZone('seek')
+        gpSetFocus(null) // Seek bar uses its own highlight, not gp-focused on a button
+      } else if (dir === 'down') {
+        // Hide controls
+        setGpZone('none')
+        gpSetFocus(null)
+        setControlsVisible(false)
+      }
+      return
+    }
+  }, [gpZone, panelOpen, showVolumePopup, volume, muted, gpControlIdx,
+      gpGetControlButtons, gpGetPanelItems, gpSetFocus, gpPanelMove])
 
   const gpActivate = useCallback(() => {
-    if (gpFocusRef.current && document.body.contains(gpFocusRef.current)) {
-      gpFocusRef.current.click()
-    } else {
-      togglePlay()
+    // Volume popup: A closes it
+    if (gpZone === 'volume' && showVolumePopup) {
+      setShowVolumePopup(false)
+      setGpZone('controls')
+      return
     }
-  }, [togglePlay])
+    // Panel: click focused item
+    if (gpZone === 'panel' && gpFocusRef.current && document.body.contains(gpFocusRef.current)) {
+      gpFocusRef.current.click()
+      return
+    }
+    // Controls: click focused button
+    if (gpZone === 'controls' && gpFocusRef.current && document.body.contains(gpFocusRef.current)) {
+      gpFocusRef.current.click()
+      return
+    }
+    // Seek bar or none: play/pause
+    togglePlay()
+  }, [gpZone, showVolumePopup, togglePlay])
 
   const gpBack = useCallback(() => {
-    // Close any open panel first, then close player
-    if (showSettings) { setShowSettings(false); return }
-    if (showSubtitlePanel) { setShowSubtitlePanel(false); return }
-    if (showEpisodePanel) { setShowEpisodePanel(false); return }
+    gpSetFocus(null)
+    // Close volume popup
+    if (showVolumePopup) { setShowVolumePopup(false); setGpZone('controls'); return }
+    // Close panels
+    if (showSettings) { setShowSettings(false); setGpZone('controls'); return }
+    if (showSubtitlePanel) { setShowSubtitlePanel(false); setGpZone('controls'); return }
+    if (showEpisodePanel) { setShowEpisodePanel(false); setGpZone('controls'); return }
+    // Hide HUD or close player
+    if (controlsVisible) { setControlsVisible(false); setGpZone('none'); return }
     handleClose()
-  }, [showSettings, showSubtitlePanel, showEpisodePanel, handleClose])
+  }, [showVolumePopup, showSettings, showSubtitlePanel, showEpisodePanel,
+      controlsVisible, handleClose, gpSetFocus])
+
+  // When panels open/close, sync zone
+  useEffect(() => {
+    if (panelOpen) setGpZone('panel')
+    else if (gpZone === 'panel') setGpZone('controls')
+  }, [panelOpen])
+
+  // Volume popup opener (called from volume button click)
+  const openVolumePopup = useCallback(() => {
+    setShowVolumePopup(true)
+    setGpZone('volume')
+  }, [])
 
   useGamepad({
     buttons: {
-      0:  { onPress: gpActivate },                                             // A — activate focused / toggle play
-      1:  { onPress: gpBack },                                                 // B — close panel or player
+      0:  { onPress: gpActivate },                                             // A — activate / play-pause
+      1:  { onPress: gpBack },                                                 // B — close panel / HUD / player
       2:  { onPress: toggleMute },                                             // X — mute
       3:  { onPress: toggleFullscreen },                                       // Y — fullscreen
       4:  { onPress: () => { if (currentEpIdx > 0) switchEpisode(episodeList[currentEpIdx - 1]) } },         // LB — prev episode
       5:  { onPress: () => { if (currentEpIdx < episodeList.length - 1) switchEpisode(episodeList[currentEpIdx + 1]) } }, // RB — next episode
-      6:  { onPress: () => seek(-30) },                                        // LT — big skip back
-      7:  { onPress: () => seek(30) },                                         // RT — big skip forward
-      12: { onPress: () => gpMove('up'),    onRepeat: () => gpMove('up'),    repeatDelay: 400, repeatInterval: 150 }, // DPad Up
-      13: { onPress: () => gpMove('down'),  onRepeat: () => gpMove('down'),  repeatDelay: 400, repeatInterval: 150 }, // DPad Down
-      14: { onPress: () => gpMove('left'),  onRepeat: () => gpMove('left'),  repeatDelay: 400, repeatInterval: 150 }, // DPad Left
-      15: { onPress: () => gpMove('right'), onRepeat: () => gpMove('right'), repeatDelay: 400, repeatInterval: 150 }, // DPad Right
+      6:  { onPress: () => { seek(-30); showControls() } },                    // LT — big skip back
+      7:  { onPress: () => { seek(30); showControls() } },                     // RT — big skip forward
+      12: { onPress: () => gpDpad('up'),    onRepeat: () => gpDpad('up', true),    repeatDelay: 400, repeatInterval: 150 }, // DPad Up
+      13: { onPress: () => gpDpad('down'),  onRepeat: () => gpDpad('down', true),  repeatDelay: 400, repeatInterval: 150 }, // DPad Down
+      14: { onPress: () => gpDpad('left'),  onRepeat: () => gpDpad('left', true),  repeatDelay: 400, repeatInterval: 150 }, // DPad Left
+      15: { onPress: () => gpDpad('right'), onRepeat: () => gpDpad('right', true), repeatDelay: 400, repeatInterval: 150 }, // DPad Right
     },
     axes: [
-      { axis: 0, direction: 'negative', onPress: () => gpMove('left'),  onRepeat: () => gpMove('left'),  repeatDelay: 400, repeatInterval: 150 },
-      { axis: 0, direction: 'positive', onPress: () => gpMove('right'), onRepeat: () => gpMove('right'), repeatDelay: 400, repeatInterval: 150 },
-      { axis: 1, direction: 'negative', onPress: () => gpMove('up'),    onRepeat: () => gpMove('up'),    repeatDelay: 400, repeatInterval: 150 },
-      { axis: 1, direction: 'positive', onPress: () => gpMove('down'),  onRepeat: () => gpMove('down'),  repeatDelay: 400, repeatInterval: 150 },
+      { axis: 0, direction: 'negative', onPress: () => gpDpad('left'),  onRepeat: () => gpDpad('left', true),  repeatDelay: 400, repeatInterval: 150 },
+      { axis: 0, direction: 'positive', onPress: () => gpDpad('right'), onRepeat: () => gpDpad('right', true), repeatDelay: 400, repeatInterval: 150 },
+      { axis: 1, direction: 'negative', onPress: () => gpDpad('up'),    onRepeat: () => gpDpad('up', true),    repeatDelay: 400, repeatInterval: 150 },
+      { axis: 1, direction: 'positive', onPress: () => gpDpad('down'),  onRepeat: () => gpDpad('down', true),  repeatDelay: 400, repeatInterval: 150 },
     ],
     onAnyInput: showControls,
   })
@@ -1115,9 +1295,11 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         {/* Title */}
         <p className="text-white font-semibold text-sm mb-3 truncate">{job.title}</p>
 
-        {/* Progress bar */}
+        {/* Progress bar — highlighted when gamepad is on seek row */}
         <div
-          className="relative h-1.5 bg-white/20 rounded-full mb-4 cursor-pointer group/seek"
+          className={`relative h-1.5 rounded-full mb-4 cursor-pointer group/seek transition-all ${
+            gpZone === 'seek' ? 'h-2.5 bg-white/30' : 'bg-white/20'
+          }`}
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect()
             seekTo((e.clientX - rect.left) / rect.width)
@@ -1128,40 +1310,84 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
             style={{ width: `${progress * 100}%` }}
           />
           <div
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3
-                       bg-white rounded-full opacity-0 group-hover/seek:opacity-100 transition"
+            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5
+                       bg-white rounded-full transition ${
+                         gpZone === 'seek' ? 'opacity-100 scale-125' : 'opacity-0 group-hover/seek:opacity-100'
+                       }`}
             style={{ left: `${progress * 100}%` }}
           />
+          {/* Seek bar gamepad hint */}
+          {gpZone === 'seek' && (
+            <div className="absolute -top-7 left-1/2 -translate-x-1/2 text-white/60 text-[10px] whitespace-nowrap">
+              ◀ {fmt(currentTime)} ▶
+            </div>
+          )}
         </div>
 
         {/* Control row */}
         <div className="flex items-center gap-3">
           {/* Play/Pause */}
-          <button data-focusable onClick={togglePlay} className="text-white hover:text-white/80 transition">
+          <button data-gp-control data-focusable onClick={togglePlay} className="text-white hover:text-white/80 transition">
             {playing ? <Pause size={22} /> : <Play size={22} fill="white" />}
           </button>
 
           {/* Skip back/forward */}
-          <button data-focusable onClick={() => seek(-10)} className="text-white/70 hover:text-white transition">
+          <button data-gp-control data-focusable onClick={() => seek(-10)} className="text-white/70 hover:text-white transition">
             <SkipBack size={18} />
           </button>
-          <button data-focusable onClick={() => seek(10)} className="text-white/70 hover:text-white transition">
+          <button data-gp-control data-focusable onClick={() => seek(10)} className="text-white/70 hover:text-white transition">
             <SkipForward size={18} />
           </button>
 
-          {/* Volume */}
-          <button data-focusable onClick={toggleMute} className="text-white/70 hover:text-white transition">
-            {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
-          </button>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={muted ? 0 : volume}
-            onChange={(e) => changeVolume(Number(e.target.value))}
-            className="w-20 accent-red-500"
-          />
+          {/* Volume — button for gamepad, inline slider for mouse */}
+          <div className="relative flex items-center gap-1">
+            <button
+              data-gp-control
+              data-focusable
+              onClick={() => {
+                // Gamepad click opens volume popup; mouse toggles mute
+                if (gpZone === 'controls') {
+                  openVolumePopup()
+                } else {
+                  toggleMute()
+                }
+              }}
+              className="text-white/70 hover:text-white transition"
+            >
+              {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+            </button>
+            {/* Inline slider — hidden when gamepad volume popup is active */}
+            {!showVolumePopup && (
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={muted ? 0 : volume}
+                onChange={(e) => changeVolume(Number(e.target.value))}
+                className="w-20 accent-red-500"
+              />
+            )}
+            {/* Gamepad vertical volume popup */}
+            {showVolumePopup && (
+              <div
+                className="absolute bottom-full left-0 mb-3 w-10 bg-black/90 backdrop-blur-md
+                           rounded-xl border border-white/15 py-3 flex flex-col items-center gap-1.5 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span className="text-white/70 text-[10px] tabular-nums font-medium">
+                  {Math.round((muted ? 0 : volume) * 100)}
+                </span>
+                <div className="relative w-1.5 h-28 bg-white/15 rounded-full overflow-hidden">
+                  <div
+                    className="absolute bottom-0 left-0 right-0 bg-red-500 rounded-full transition-all"
+                    style={{ height: `${(muted ? 0 : volume) * 100}%` }}
+                  />
+                </div>
+                <span className="text-white/30 text-[9px]">VOL</span>
+              </div>
+            )}
+          </div>
 
           {/* Time */}
           <span className="text-white/60 text-xs tabular-nums ml-1">
@@ -1180,6 +1406,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
 
           {/* Settings */}
           <button
+            data-gp-control
             data-focusable
             onClick={() => { setShowSettings((v) => !v); setShowSubtitlePanel(false); setShowEpisodePanel(false) }}
             className={`text-white/70 hover:text-white transition ${showSettings ? 'text-white' : ''}`}
@@ -1189,6 +1416,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
 
           {/* Subtitles panel toggle */}
           <button
+            data-gp-control
             data-focusable
             onClick={() => { setShowSubtitlePanel((v) => !v); setShowSettings(false); setShowEpisodePanel(false) }}
             className={`text-white/70 hover:text-white transition ${showSubtitlePanel ? 'text-white' : ''}`}
@@ -1199,6 +1427,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
           {/* Episode picker (TV only) */}
           {episodeList.length > 0 && (
             <button
+              data-gp-control
               data-focusable
               onClick={() => { setShowEpisodePanel((v) => !v); setShowSettings(false); setShowSubtitlePanel(false) }}
               className={`text-white/70 hover:text-white transition ${showEpisodePanel ? 'text-white' : ''}`}
@@ -1209,55 +1438,165 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
           )}
 
           {/* Fullscreen */}
-          <button data-focusable onClick={toggleFullscreen} className="text-white/70 hover:text-white transition">
+          <button data-gp-control data-focusable onClick={toggleFullscreen} className="text-white/70 hover:text-white transition">
             {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
           </button>
         </div>
       </motion.div>
 
-      {/* Subtitle panel */}
+      {/* Subtitle panel — unified Stremio-style: embedded + OpenSubtitles grouped by language */}
       {showSubtitlePanel && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="absolute bottom-24 right-4 w-72 bg-[#1a1a1a] border border-dark-border
-                     rounded-xl shadow-2xl overflow-hidden z-30"
+          className="absolute bottom-24 right-4 w-80 bg-[#141414]/95 backdrop-blur-xl border border-white/10
+                     rounded-2xl shadow-2xl overflow-hidden z-30"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="px-3 py-2.5 border-b border-dark-border">
-            <p className="text-xs font-medium text-white/70">Subtitles</p>
+          <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+            <p className="text-sm font-semibold text-white">Subtitles</p>
+            {osSearching && <Loader2 size={14} className="text-white/40 animate-spin" />}
           </div>
 
-          <div className="max-h-[26rem] overflow-y-auto">
-            {/* OpenSubtitles search — at the top for quick access */}
-            <div className="p-2">
+          <div className="max-h-[28rem] overflow-y-auto py-1">
+            {/* Off option */}
+            <button
+              data-focusable
+              onClick={() => { switchSubtitle(null); setActiveOsSubId(null); setShowSubtitlePanel(false) }}
+              className={`w-full text-left px-4 py-2.5 text-sm transition ${
+                activeSub === null && activeOsSubId === null
+                  ? 'bg-red-600/15 text-white'
+                  : 'text-white/60 hover:bg-white/5 hover:text-white'
+              }`}
+            >
+              Off
+            </button>
+
+            {/* Unified list: group by language, embedded first then OpenSubtitles */}
+            {(() => {
+              // Build language groups: { lang: { embedded: [...], external: [...] } }
+              const groups = new Map<string, { embedded: typeof job.subtitleTracks, external: typeof osResults }>()
+
+              // Add embedded tracks
+              for (const t of job.subtitleTracks) {
+                const lang = (t.language || 'und').toLowerCase()
+                if (!groups.has(lang)) groups.set(lang, { embedded: [], external: [] })
+                groups.get(lang)!.embedded.push(t)
+              }
+
+              // Add OpenSubtitles results
+              for (const s of osResults) {
+                const lang = (s.language || 'und').toLowerCase()
+                if (!groups.has(lang)) groups.set(lang, { embedded: [], external: [] })
+                groups.get(lang)!.external.push(s)
+              }
+
+              // Sort languages: preferred lang first, then alphabetically
+              const prefLang = preferredSubtitleLang === 'off' || preferredSubtitleLang === 'auto' ? 'en' : preferredSubtitleLang.toLowerCase()
+              const sortedLangs = Array.from(groups.keys()).sort((a, b) => {
+                const aMatch = a.startsWith(prefLang) ? 0 : 1
+                const bMatch = b.startsWith(prefLang) ? 0 : 1
+                if (aMatch !== bMatch) return aMatch - bMatch
+                return a.localeCompare(b)
+              })
+
+              return sortedLangs.map((lang) => {
+                const group = groups.get(lang)!
+                const langLabel = lang === 'und' ? 'Unknown' : lang.toUpperCase()
+                const hasItems = group.embedded.length > 0 || group.external.length > 0
+
+                if (!hasItems) return null
+                return (
+                  <div key={lang}>
+                    {/* Language header */}
+                    <div className="px-4 pt-3 pb-1">
+                      <span className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{langLabel}</span>
+                    </div>
+
+                    {/* Embedded tracks for this language */}
+                    {group.embedded.map((t) => (
+                      <button
+                        key={`emb-${t.index}`}
+                        data-focusable
+                        onClick={() => { switchSubtitle(t); setActiveOsSubId(null); setShowSubtitlePanel(false) }}
+                        className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2 transition ${
+                          activeSub === t.index
+                            ? 'bg-red-600/15 text-white'
+                            : 'text-white/60 hover:bg-white/5 hover:text-white'
+                        }`}
+                      >
+                        <span className="flex-1 truncate">{t.label || t.language}</span>
+                        <span className="text-[9px] bg-white/8 text-white/40 px-1.5 py-0.5 rounded">Embedded</span>
+                        {t.isImageBased && (
+                          <span className="text-[9px] bg-yellow-600/20 text-yellow-400 px-1.5 py-0.5 rounded">PGS</span>
+                        )}
+                      </button>
+                    ))}
+
+                    {/* OpenSubtitles results for this language */}
+                    {group.external.map((sub) => (
+                      <button
+                        key={`os-${sub.id}`}
+                        data-focusable
+                        onClick={() => applyOsSub(sub)}
+                        className={`w-full text-left px-4 py-2 transition ${
+                          activeOsSubId === sub.id
+                            ? 'bg-red-600/15 text-white'
+                            : 'text-white/50 hover:bg-white/5 hover:text-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="flex-1 truncate text-sm">{sub.name || 'Unnamed'}</span>
+                          <div className="flex-shrink-0 flex gap-1">
+                            {sub.hearingImpaired && (
+                              <span className="text-[9px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded">HI</span>
+                            )}
+                            <span className="text-[9px] bg-white/8 text-white/30 px-1.5 py-0.5 rounded">
+                              {sub.downloadCount > 0 ? `${(sub.downloadCount / 1000).toFixed(0)}k` : 'OS'}
+                            </span>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )
+              })
+            })()}
+
+            {/* No results at all */}
+            {job.subtitleTracks.length === 0 && osResults.length === 0 && !osSearching && (
+              <p className="px-4 py-3 text-xs text-white/30">No subtitles available</p>
+            )}
+
+            {/* Manual search fallback — collapsed at bottom */}
+            <div className="border-t border-white/5 mt-1 p-2">
               <button
                 data-focusable
                 onClick={() => setOsSearchOpen((v) => !v)}
                 className="w-full flex items-center justify-between px-3 py-2 rounded-lg
-                           text-xs text-white/50 hover:text-white/80 hover:bg-white/5 transition"
+                           text-xs text-white/30 hover:text-white/60 hover:bg-white/5 transition"
               >
                 <span className="flex items-center gap-1.5">
-                  <Globe size={12} />
-                  Search OpenSubtitles
+                  <Search size={11} />
+                  Search manually
                 </span>
-                <span className="text-white/30">{osSearchOpen ? '▲' : '▼'}</span>
+                <span className="text-white/20">{osSearchOpen ? '▲' : '▼'}</span>
               </button>
 
               {osSearchOpen && (
-                <div className="mt-1 space-y-1.5">
-                  {/* Query + search button row */}
+                <div className="mt-1.5 space-y-1.5">
                   <div className="flex gap-1.5 px-1">
                     <input
                       value={osQuery}
                       onChange={(e) => setOsQuery(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') searchOsSubs() }}
+                      placeholder="Search OpenSubtitles..."
                       className="flex-1 min-w-0 bg-white/10 border border-white/10 rounded-lg
-                                 text-white text-xs px-2 py-1.5 outline-none"
+                                 text-white text-xs px-2.5 py-1.5 outline-none placeholder:text-white/20"
                     />
                     <button
                       data-focusable
-                      onClick={searchOsSubs}
+                      onClick={() => searchOsSubs()}
                       disabled={osSearching}
                       className="flex-shrink-0 px-2.5 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-600
                                  text-white transition disabled:opacity-40 flex items-center"
@@ -1268,86 +1607,10 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
                       }
                     </button>
                   </div>
-
-                  {/* Loading */}
-                  {osSearching && (
-                    <div className="flex items-center justify-center py-3">
-                      <Loader2 size={16} className="text-white/40 animate-spin" />
-                    </div>
-                  )}
-
-                  {/* Error */}
                   {osError && !osSearching && (
                     <p className="px-3 py-1 text-xs text-red-400">{osError}</p>
                   )}
-
-                  {/* Results */}
-                  {!osSearching && osResults.map((sub) => (
-                    <button
-                      key={sub.id}
-                      data-focusable
-                      onClick={() => applyOsSub(sub)}
-                      className={`w-full text-left px-3 py-2 rounded-lg transition ${
-                        activeOsSubId === sub.id
-                          ? 'bg-red-600/20 text-white'
-                          : 'text-white/50 hover:bg-white/8 hover:text-white'
-                      }`}
-                    >
-                      <div className="flex items-start gap-2">
-                        <div className="flex-1 truncate text-xs">{sub.name || 'Unnamed'}</div>
-                        <div className="flex-shrink-0 flex gap-1 mt-0.5">
-                          <span className="text-[9px] bg-white/10 text-white/50 px-1 py-0.5 rounded uppercase">
-                            {sub.language}
-                          </span>
-                          {sub.hearingImpaired && (
-                            <span className="text-[9px] bg-blue-600/20 text-blue-400 px-1 py-0.5 rounded">HI</span>
-                          )}
-                        </div>
-                      </div>
-                      {sub.downloadCount > 0 && (
-                        <div className="text-[10px] text-white/25 mt-0.5">
-                          {sub.downloadCount.toLocaleString()} downloads
-                        </div>
-                      )}
-                    </button>
-                  ))}
                 </div>
-              )}
-            </div>
-
-            {/* Embedded tracks */}
-            <div className="border-t border-dark-border" />
-            <div className="p-2">
-              <button
-                data-focusable
-                onClick={() => { switchSubtitle(null); setShowSubtitlePanel(false) }}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${
-                  activeSub === null && activeOsSubId === null
-                    ? 'bg-red-600/20 text-white'
-                    : 'text-white/60 hover:bg-white/8 hover:text-white'
-                }`}
-              >
-                Off
-              </button>
-              {job.subtitleTracks.map((t) => (
-                <button
-                  key={t.index}
-                  data-focusable
-                  onClick={() => { switchSubtitle(t); setShowSubtitlePanel(false) }}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition ${
-                    activeSub === t.index
-                      ? 'bg-red-600/20 text-white'
-                      : 'text-white/60 hover:bg-white/8 hover:text-white'
-                  }`}
-                >
-                  <span>{t.label || t.language}</span>
-                  {t.isImageBased && (
-                    <span className="text-[9px] bg-yellow-600/30 text-yellow-400 px-1 rounded">PGS</span>
-                  )}
-                </button>
-              ))}
-              {job.subtitleTracks.length === 0 && (
-                <p className="px-3 py-2 text-xs text-white/30">No embedded tracks</p>
               )}
             </div>
           </div>
