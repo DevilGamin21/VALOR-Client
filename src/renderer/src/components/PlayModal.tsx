@@ -802,41 +802,63 @@ export default function PlayModal({ item, onClose }: Props) {
                         )}
                       </AnimatePresence>
 
-                      <div className="flex flex-col gap-1.5 max-h-80 overflow-y-auto pr-1">
+                      <div className="flex flex-col gap-1 max-h-80 overflow-y-auto pr-1">
                         {episodes.map((ep) => {
                           const pct = ep.playedPercentage ?? 0
                           const isWatched = pct >= 90
                           const hasProgress = pct >= 5 && pct < 90
+                          const isPlayable = ep.onDemand && ep.jellyfinId && !(item.premiumOnly && !isPremium)
                           return (
                             <div
                               key={ep.id}
-                              className="relative flex items-center gap-3 px-3 py-3 rounded-lg bg-white/5 hover:bg-white/8 transition overflow-hidden"
+                              data-focusable={isPlayable ? true : undefined}
+                              onClick={isPlayable ? () => { setActiveMenu(null); handleEpisodePlay(ep) } : undefined}
+                              className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition overflow-hidden ${
+                                isPlayable
+                                  ? 'bg-white/[0.03] hover:bg-white/[0.08] cursor-pointer'
+                                  : 'bg-white/[0.02] opacity-50'
+                              }`}
                             >
-                              {/* Episode number */}
-                              <span className="flex-shrink-0 w-6 text-right text-xs font-mono tabular-nums text-white/25">
-                                {ep.episodeNumber}
-                              </span>
-
-                              {/* Title */}
-                              <div className="flex-1 min-w-0">
-                                <p className={`text-sm font-medium truncate leading-snug ${ep.onDemand ? 'text-white' : 'text-white/40'}`}>
-                                  {ep.title}
-                                </p>
+                              {/* Episode number + play icon overlay */}
+                              <div className="flex-shrink-0 w-8 h-8 rounded-md bg-white/[0.06] flex items-center justify-center relative">
+                                <span className={`text-xs font-bold tabular-nums transition ${
+                                  isPlayable ? 'text-white/40 group-hover:opacity-0' : 'text-white/20'
+                                }`}>
+                                  {ep.episodeNumber}
+                                </span>
+                                {isPlayable && (
+                                  <Play size={12} fill="white" className="text-white absolute opacity-0 group-hover:opacity-100 transition ml-0.5" />
+                                )}
                               </div>
 
-                              {/* Progress % + Watched badge — left of 3-dots */}
-                              {hasProgress && (
-                                <span className="flex-shrink-0 text-[10px] text-white/30">{Math.round(pct)}%</span>
-                              )}
+                              {/* Title + status */}
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-[13px] font-medium truncate leading-snug ${ep.onDemand ? 'text-white/90' : 'text-white/30'}`}>
+                                  {ep.title}
+                                </p>
+                                {/* Progress bar */}
+                                {hasProgress && (
+                                  <div className="mt-1.5 h-[3px] w-full max-w-[120px] bg-white/10 rounded-full overflow-hidden">
+                                    <div className="h-full bg-red-500 rounded-full" style={{ width: `${pct}%` }} />
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Badges */}
                               {isWatched && (
                                 <span className="flex-shrink-0 text-[9px] font-semibold tracking-wide uppercase
-                                                 text-emerald-400 bg-emerald-900/25 border border-emerald-700/30
-                                                 px-1.5 py-0.5 rounded">
+                                                 text-emerald-400/70 px-1.5 py-0.5 rounded bg-emerald-500/10">
                                   Watched
                                 </span>
                               )}
+                              {!ep.onDemand && (
+                                <Lock size={11} className="flex-shrink-0 text-white/15" />
+                              )}
+                              {item.premiumOnly && !isPremium && ep.onDemand && (
+                                <Lock size={11} className="flex-shrink-0 text-amber-400/40" />
+                              )}
 
-                              {/* Options button — dropdown rendered at modal root via fixed position */}
+                              {/* 3-dot menu */}
                               {ep.jellyfinId && (
                                 <button
                                   data-focusable
@@ -849,45 +871,11 @@ export default function PlayModal({ item, onClose }: Props) {
                                       setActiveMenu({ epId: ep.id, top: rect.bottom + 4, right: window.innerWidth - rect.right })
                                     }
                                   }}
-                                  className="flex-shrink-0 w-7 h-7 rounded flex items-center justify-center
-                                             text-white/25 hover:text-white/70 hover:bg-white/10 transition"
+                                  className="flex-shrink-0 w-6 h-6 rounded flex items-center justify-center
+                                             text-white/15 hover:text-white/60 hover:bg-white/10 transition opacity-0 group-hover:opacity-100"
                                 >
-                                  <MoreHorizontal size={14} />
+                                  <MoreHorizontal size={13} />
                                 </button>
-                              )}
-
-                              {/* Play button */}
-                              {ep.onDemand && ep.jellyfinId ? (
-                                item.premiumOnly && !isPremium ? (
-                                  <div
-                                    className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center"
-                                    title="Premium only"
-                                  >
-                                    <Lock size={12} className="text-amber-400/50" />
-                                  </div>
-                                ) : (
-                                  <button
-                                    data-focusable
-                                    onClick={() => { setActiveMenu(null); handleEpisodePlay(ep) }}
-                                    disabled={loadingPlay}
-                                    title={hasProgress ? 'Resume' : 'Play'}
-                                    className="flex-shrink-0 w-8 h-8 rounded-full bg-white/10
-                                               hover:bg-red-600/80 flex items-center justify-center transition"
-                                  >
-                                    {loadingPlay ? (
-                                      <Loader2 size={12} className="animate-spin text-white/60" />
-                                    ) : (
-                                      <Play size={12} fill="white" className="text-white ml-0.5" />
-                                    )}
-                                  </button>
-                                )
-                              ) : (
-                                <div
-                                  className="flex-shrink-0 w-8 h-8 rounded-full bg-white/5 flex items-center justify-center"
-                                  title="Not available"
-                                >
-                                  <Lock size={12} className="text-white/20" />
-                                </div>
                               )}
                             </div>
                           )

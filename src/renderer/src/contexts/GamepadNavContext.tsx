@@ -53,23 +53,14 @@ function findScrollRow(el: Element): HTMLElement | null {
   return null
 }
 
-/**
- * Get all content rows — each <section> containing a MediaRow.
- * Returns them in DOM order (top to bottom).
- * Also includes the DynamicHero section and any other top-level content sections.
- */
-function getContentRows(): HTMLElement[] {
-  const main = document.querySelector('main')
-  if (!main) return []
-  // Each MediaRow is a <section> with an overflow-x-auto scroll container
-  // Also include any data-focusable elements that aren't inside a section (hero buttons, toggles, etc.)
-  const sections = Array.from(main.querySelectorAll('section'))
-  return sections.filter(s => s.querySelector('[data-focusable]')) as HTMLElement[]
-}
-
-/** Get focusable items within a specific row/section, in DOM (left-to-right) order */
-function getRowItems(section: HTMLElement): Element[] {
-  return Array.from(section.querySelectorAll('[data-focusable]')).filter(isVisible)
+/** Find the containing <section> for an element */
+function findSection(el: Element): HTMLElement | null {
+  let parent = el.parentElement
+  while (parent) {
+    if (parent.tagName === 'SECTION') return parent
+    parent = parent.parentElement
+  }
+  return null
 }
 
 /** Get all sidebar focusable items in order */
@@ -79,10 +70,25 @@ function getSidebarItems(): Element[] {
   return Array.from(aside.querySelectorAll('[data-focusable]')).filter(isVisible)
 }
 
-/** Get all visible content focusable items (non-sidebar, non-modal) */
+/** Get all visible content focusable items (non-sidebar) */
 function getAllContentItems(): Element[] {
-  return Array.from(document.querySelectorAll('[data-focusable]'))
-    .filter(el => !isInSidebar(el) && isVisible(el))
+  return Array.from(document.querySelectorAll('main [data-focusable]'))
+    .filter(el => isVisible(el))
+}
+
+/** Get focusable items within the same row/section as the given element */
+function getSameRowItems(el: Element): Element[] {
+  // First try: same scroll row (overflow-x-auto container)
+  const scrollRow = findScrollRow(el)
+  if (scrollRow) {
+    return Array.from(scrollRow.querySelectorAll('[data-focusable]')).filter(isVisible)
+  }
+  // Fallback: same <section>
+  const section = findSection(el)
+  if (section) {
+    return Array.from(section.querySelectorAll('[data-focusable]')).filter(isVisible)
+  }
+  return []
 }
 
 /** Get modal focusable items */
@@ -156,7 +162,7 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
           scrollRow.scrollBy({ left: offset, behavior: 'smooth' })
         }
       }
-      // Vertical scroll: keep element visible
+      // Vertical scroll: keep element visible in main
       el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     }
   }, [])
@@ -196,7 +202,6 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
 
     const current = ensureFocus()
     if (!current || !items.includes(current)) {
-      // Focus first meaningful modal element (skip close button)
       const meaningful = items.find(el => !el.hasAttribute('data-modal-close'))
       setFocus(meaningful || items[0])
       return
@@ -216,17 +221,14 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
 
     const current = ensureFocus()
 
-    // If no focus or current isn't in sidebar, focus first sidebar item
     if (!current || !isInSidebar(current)) {
       setFocus(items[0], 'sidebar')
       return
     }
 
     if (direction === 'right') {
-      // Exit sidebar → enter content. Focus first visible content item.
       const contentItems = getAllContentItems()
       if (contentItems.length > 0) {
-        // Pick the content item closest to current sidebar item vertically
         const from = current.getBoundingClientRect()
         const nearest = findNearest(from, 'right', contentItems)
         setFocus(nearest || contentItems[0], 'content')
@@ -241,11 +243,8 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
       if (nextIdx >= 0 && nextIdx < items.length) {
         setFocus(items[nextIdx], 'sidebar')
       }
-      // At top/bottom boundary — do nothing, don't wrap
       return
     }
-
-    // Left in sidebar — do nothing
   }, [setFocus, clearFocus])
 
   // ── CONTENT navigation ─────────────────────────────────────────────────
@@ -264,70 +263,63 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
 
     const from = current.getBoundingClientRect()
 
-    // ── LEFT ──
-    if (direction === 'left') {
-      // Try to find a content item to the left
-      const contentItems = getAllContentItems().filter(el => el !== current)
-      const leftItem = findNearest(from, 'left', contentItems)
+    // ── LEFT / RIGHT — stay in the SAME row ──
+    if (direction === 'left' || direction === 'right') {
+      // Only search within the same row (same scroll container / section)
+      const rowItems = getSameRowItems(current).filter(el => el !== current)
+      const sameRowMatch = findNearest(from, direction, rowItems)
 
-      if (leftItem) {
-        setFocus(leftItem, 'content')
-      } else {
-        // Nothing to the left — check if we're in a scroll row that can scroll further left
-        const scrollRow = findScrollRow(current)
-        if (scrollRow && scrollRow.scrollLeft > 5) {
-          scrollRow.scrollBy({ left: -200, behavior: 'smooth' })
-          setTimeout(() => {
-            const newItems = getAllContentItems().filter(el => el !== current)
-            const found = findNearest(from, 'left', newItems)
-            if (found) setFocus(found, 'content')
-          }, 250)
-        } else {
-          // At leftmost position — enter sidebar
-          const sidebarItems = getSidebarItems()
-          if (sidebarItems.length > 0) {
-            const nearest = findNearest(from, 'left', sidebarItems)
-            setFocus(nearest || sidebarItems[0], 'sidebar')
-          }
-        }
+      if (sameRowMatch) {
+        setFocus(sameRowMatch, 'content')
+        return
       }
-      return
-    }
 
-    // ── RIGHT ──
-    if (direction === 'right') {
-      const contentItems = getAllContentItems().filter(el => el !== current)
-      const rightItem = findNearest(from, 'right', contentItems)
-
-      if (rightItem) {
-        setFocus(rightItem, 'content')
-      } else {
-        // Try scrolling the carousel right to reveal more cards
-        const scrollRow = findScrollRow(current)
-        if (scrollRow) {
+      // No visible item in direction within the row — try scrolling the carousel
+      const scrollRow = findScrollRow(current)
+      if (scrollRow) {
+        if (direction === 'right') {
           const maxScroll = scrollRow.scrollWidth - scrollRow.clientWidth
           if (scrollRow.scrollLeft < maxScroll - 5) {
             scrollRow.scrollBy({ left: 200, behavior: 'smooth' })
             setTimeout(() => {
-              const newItems = getAllContentItems().filter(el => el !== current)
-              const found = findNearest(from, 'right', newItems)
+              const newRowItems = getSameRowItems(current).filter(el => el !== current)
+              const found = findNearest(from, 'right', newRowItems)
               if (found) setFocus(found, 'content')
             }, 250)
+            return
+          }
+        } else {
+          if (scrollRow.scrollLeft > 5) {
+            scrollRow.scrollBy({ left: -200, behavior: 'smooth' })
+            setTimeout(() => {
+              const newRowItems = getSameRowItems(current).filter(el => el !== current)
+              const found = findNearest(from, 'left', newRowItems)
+              if (found) setFocus(found, 'content')
+            }, 250)
+            return
           }
         }
       }
+
+      // At the boundary: left at leftmost → enter sidebar
+      if (direction === 'left') {
+        const sidebarItems = getSidebarItems()
+        if (sidebarItems.length > 0) {
+          const nearest = findNearest(from, 'left', sidebarItems)
+          setFocus(nearest || sidebarItems[0], 'sidebar')
+        }
+      }
+      // Right at rightmost → do nothing (end of row)
       return
     }
 
-    // ── UP / DOWN — move between rows ──
-    // Find content items strictly above or below, staying in content area only
+    // ── UP / DOWN — move between rows, stay in content ──
     const contentItems = getAllContentItems().filter(el => el !== current)
     const next = findNearest(from, direction, contentItems)
 
     if (next) {
       setFocus(next, 'content')
     } else {
-      // No focusable element in direction — scroll the page to reveal more
       const main = document.querySelector('main')
       if (main) {
         const amount = direction === 'down' ? 300 : -300
@@ -344,13 +336,11 @@ export function GamepadNavProvider({ children }: { children: ReactNode }) {
   // ── Main move dispatcher ───────────────────────────────────────────────
 
   const move = useCallback((direction: 'up' | 'down' | 'left' | 'right') => {
-    // Modal takes priority — all navigation happens inside the modal
     if (getModalRoot()) {
       moveInModal(direction)
       return
     }
 
-    // Determine current zone from focused element or last known zone
     const current = focusedRef.current
     if (current && document.body.contains(current) && isVisible(current)) {
       zoneRef.current = isInSidebar(current) ? 'sidebar' : 'content'
