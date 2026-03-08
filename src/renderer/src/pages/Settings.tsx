@@ -40,6 +40,7 @@ const SUBTITLE_LANGS = [
 function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
     <button
+      data-focusable
       onClick={onChange}
       role="switch"
       aria-checked={checked}
@@ -139,6 +140,7 @@ export default function Settings() {
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {QUALITY_OPTIONS.map((opt) => (
               <button
+                data-focusable
                 key={opt.value}
                 onClick={() => update({ defaultQuality: opt.value })}
                 className={`text-left px-3 py-2.5 rounded-lg border transition ${
@@ -204,6 +206,7 @@ export default function Settings() {
             <p className="text-sm font-medium text-white">Preferred Audio</p>
           </div>
           <select
+            data-focusable
             value={preferredAudioLang}
             onChange={(e) => update({ preferredAudioLang: e.target.value })}
             className="w-full bg-black/40 border border-white/15 rounded-lg px-3 py-2 text-sm
@@ -222,6 +225,7 @@ export default function Settings() {
             <p className="text-sm font-medium text-white">Preferred Subtitles</p>
           </div>
           <select
+            data-focusable
             value={preferredSubtitleLang}
             onChange={(e) => update({ preferredSubtitleLang: e.target.value })}
             className="w-full bg-black/40 border border-white/15 rounded-lg px-3 py-2 text-sm
@@ -252,6 +256,7 @@ export default function Settings() {
               { value: 'xl', label: 'XL' },
             ] as { value: SubtitleSize; label: string }[]).map((opt) => (
               <button
+                data-focusable
                 key={opt.value}
                 onClick={() => update({ subtitleSize: opt.value })}
                 className={`py-2 rounded-lg border text-sm text-center transition ${
@@ -273,6 +278,7 @@ export default function Settings() {
             <span className="text-xs text-white/40">{Math.round(subtitleBgOpacity * 100)}%</span>
           </div>
           <input
+            data-focusable
             type="range"
             min={0}
             max={1}
@@ -338,6 +344,7 @@ export default function Settings() {
           )}
 
           <button
+            data-focusable
             onClick={handleRescan}
             disabled={scanning}
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/8 hover:bg-white/12
@@ -352,6 +359,7 @@ export default function Settings() {
       {/* ── Reset ───────────────────────────────────────────────────────────── */}
       <section>
         <button
+          data-focusable
           onClick={reset}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/8 hover:bg-white/12
                      text-white/50 hover:text-white text-sm transition"
