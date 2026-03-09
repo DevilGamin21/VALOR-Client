@@ -117,21 +117,25 @@ function createWindow(): void {
 
   // ── Gamepad: keep page "visible" when unfocused ─────────────────────────
   // Chromium's Gamepad API checks Page::IsPageVisible() at the C++ level.
-  // incrementCapturerCount() forces the page to stay "visible" internally
-  // (Chromium treats captured pages as visible). Only activate when unfocused
-  // to avoid compositor side-effects during normal use.
-  let capturerActive = false
+  // Use CDP to emulate focus + override JS visibility so gamepads stay active.
+  try { mainWindow.webContents.debugger.attach('1.3') } catch { /* ok */ }
   mainWindow.on('blur', () => {
-    if (!capturerActive && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.incrementCapturerCount()
-      capturerActive = true
-    }
+    try {
+      mainWindow?.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true })
+    } catch { /* ignore */ }
   })
   mainWindow.on('focus', () => {
-    if (capturerActive && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.decrementCapturerCount()
-      capturerActive = false
-    }
+    try {
+      mainWindow?.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: false })
+    } catch { /* ignore */ }
+  })
+  // JS-level visibility override as fallback
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow?.webContents.executeJavaScript(`
+      Object.defineProperty(document, 'visibilityState', { get: () => 'visible', configurable: true });
+      Object.defineProperty(document, 'hidden', { get: () => false, configurable: true });
+      document.addEventListener('visibilitychange', (e) => e.stopImmediatePropagation(), true);
+    `)
   })
 
   // Inject Origin/Referer for ALL outgoing requests from the renderer.
