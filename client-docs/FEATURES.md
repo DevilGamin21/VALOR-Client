@@ -1,146 +1,189 @@
-# VALOR Desktop Client – Implemented Features
+# VALOR — Feature Comparison & Roadmap
+
+## Platform Comparison
+
+| Feature | Desktop Client | Website |
+|---------|:-:|:-:|
+| **Browsing & Discovery** | | |
+| Home (Trending, Continue Watching, Categories) | Yes | Yes |
+| Movies / TV pages with search | Yes | Yes |
+| Dynamic hero carousel | Yes | Yes |
+| Anime toggle filter | Yes | Yes |
+| On Demand toggle filter | Yes | Yes |
+| Watchlist (server-synced) | Yes | Yes |
+| **Playback** | | |
+| HLS.js video player | Yes | Yes |
+| Direct Play (no transcode, GPU decode) | Yes | No |
+| Quality presets (4K/1440p/1080p/720p/480p) | Yes | Yes |
+| Quality switching mid-playback | Yes | Yes |
+| Audio track switching (language, codec info) | Yes | Yes |
+| Subtitle selector (embedded Jellyfin subs) | Yes | Yes |
+| OpenSubtitles search & download | Yes | Yes |
+| Subtitle styling (size, opacity) | Yes | Yes |
+| Playback speed (0.5x - 2x) | Yes | Yes |
+| Resume / Continue Watching | Yes | Yes |
+| Progress tracking (10s heartbeat) | Yes | Yes |
+| Watched indicators & badges | Yes | Yes |
+| **TV Episodes** | | |
+| Season selector | Yes | Yes |
+| Episode list with progress bars | Yes | Yes |
+| Episode switching during playback | Yes | Yes |
+| Up Next auto-play (2 min before end) | Yes | Yes |
+| **P2P Streaming** | | |
+| WebTorrent P2P stream | Yes | Yes |
+| Digital release gating | Yes | Yes |
+| Buffer progress display | Yes | Yes |
+| **Content Requests** | | |
+| Request via Ombi | Yes | Yes |
+| **Admin** | | |
+| User management (CRUD, tiers, Jellyfin sync) | Yes | Yes |
+| System diagnostics | Yes | Yes |
+| Library scan trigger | Yes | Yes |
+| Symlink health check | No | Yes |
+| Jellyfin restart trigger | No | Yes |
+| **Pruna Pipeline** | | |
+| Dashboard (active/completed/failed) | Yes | Yes |
+| Queue config (max concurrent) | Yes | Yes |
+| Library management (delete, refetch) | Yes | Yes |
+| Episode-level management | Yes | Yes |
+| Ongoing show auto-follow | Yes | Yes |
+| Batch torrent search & magnet install | Yes | Yes |
+| **User Account** | | |
+| Login (JWT) | Yes | Yes |
+| Profile editing & avatar upload | Yes | Yes |
+| User tier display (Free/Trial/Sub/Lifetime) | Yes | Yes |
 
 ---
 
-## Auth & session
+## Desktop Client — Exclusive Features
 
-- **Login page** (`/login`): Premium dark glassmorphism design — gradient-border card, three animated blob orbs (red/indigo), floating CSS particle field, scan-line shimmer.
-- **4-stage animated auth flow:**
-  - Stage 1 — Submitting: Card scales down (0.97×) with Gaussian blur.
-  - Stage 2 — Dot: Card shrinks to zero; a glowing red dot appears with spinning + pulsing rings.
-  - Stage 3 — Success: Dot expands to full viewport (expo-out easing), black overlay fades in, router navigates to `/home`.
-  - Stage 4 — Failure: Dot shakes horizontally, card restores, error banner appears.
-- **JWT persistence:** Token stored in `electron-store` (encrypted, OS keychain-backed) via IPC. Session is restored automatically on app launch without re-login.
-- **Protected routes:** `ProtectedRoute` component wraps all pages; unauthenticated users are redirected to `/login`. On launch, the app validates the stored token with `GET /me` before allowing access.
-- **Auth header:** `Authorization: Bearer <token>` on all API requests (not cookies — desktop clients don't use HTTP-only cookies).
+### Gamepad / Controller Navigation
+- Zone-based spatial navigation (sidebar / content / modal zones)
+- DPad + left stick for directional movement
+- A button = activate, B button = back / close modal
+- Red heartbeat glow focus ring (box-shadow follows border-radius)
+- Gamepad hover mirrors mouse hover (poster scale-up, play overlay, watchlist button, episode number highlight)
+- Auto-repeat on hold: 400ms delay, 150ms interval
+- Focus memory across modal open/close (pre-modal position restored)
+- Disabled when VideoPlayer is open (player has its own gamepad controls)
+- React re-render fix: `requestAnimationFrame` re-applies `gp-focused` after `click()`
 
----
+### Direct Play Mode
+- Hardware GPU detection on first launch (MediaCapabilities API for H.264 1080p/30fps/10Mbps)
+- Plays original file directly via `<video src=url>` — no FFmpeg, no transcoding
+- Lower latency, original quality, less server load
+- User can manually override auto-detection in Settings
+- Fallback to canPlayType() if MediaCapabilities unavailable
 
-## Window chrome
+### Sleep Timer
+- Options: Off, 5/10/15/30/60/90 minutes, End of Episode
+- Triggers system sleep on expiry:
+  - Windows: PowerShell `SetSuspendState`
+  - Linux: `systemctl suspend`
+  - macOS: `pmset sleepnow`
+- Countdown display in settings panel
+- Sleep timer overrides Up Next auto-advance
 
-- **Frameless window:** No OS title bar. Custom `TitleBar` component provides minimize, maximize/restore, and close buttons styled to match the app theme.
-- **Title bar drag:** The title bar area has `-webkit-app-region: drag` so the window can be dragged by the top strip.
-- **Maximize state sync:** The maximize button icon updates correctly when the window is maximised/restored via the taskbar or keyboard shortcuts.
-- **Dark background:** `#0a0a0a` background colour on the `BrowserWindow` prevents white flash on launch.
+### Auto-Updater
+- electron-updater with GitHub Releases as provider
+- Background download starts 5s after launch
+- Update banner: version, download progress (% + KB/s), ready state
+- Restart-to-update prompt with green button
+- Delta updates via blockmap (smaller downloads for minor updates)
+- No UAC prompts: `allowElevation: false`, `requestedExecutionLevel: asInvoker`
 
----
+### Discord Rich Presence
+- Shows "Browsing for content" while navigating
+- Shows "Playing [title]" with poster image during playback
+- Toggle in Settings > Integrations
+- Auto-reconnects every 30s on disconnect
+- Graceful fallback if Discord not running
 
-## Layout & shell
-
-- **RootShell** (`components/RootShell.tsx`): Title bar → header (logo, search bar, avatar) → collapsible left sidebar → main content area.
-- **Sidebar:** Glass-style, `w-52`. Nav links (Home, Movies, TV, Watchlist) with active state glow. Profile, Admin (admin only), Update banner, Sign out at the bottom.
-- **Sidebar toggle:** Menu/X button in the header collapses/expands the sidebar.
-- **Search:** Header search calls `/search?q=...` (TMDB-first unified search), navigates to `/movies?q=...` and `/tv?q=...` depending on result types.
-
----
-
-## Home
-
-- **Hero banner:** Large backdrop image for the featured trending item with title, overview, and "View Details" button.
-- **Continue Watching row:** Shows partially-watched Jellyfin items from `GET /user-progress`. Each card displays a thin white progress bar at the top of the poster (5–90% watched).
-- **Trending Movies row:** TMDB trending, cross-referenced with Jellyfin library. Items in the library get an "On Demand" badge and `onDemand: true`.
-- **Trending TV row:** Same as movies.
-
----
-
-## Movies & TV pages
-
-- **No query:** Shows TMDB trending content (movies or TV respectively) with Jellyfin library overlay.
-- **With `?q=` query:** Shows Jellyfin library search results filtered to `type: 'movie'` or `type: 'tv'`.
-- **MediaRow** (`components/MediaRow.tsx`): Horizontal scroll with left/right chevron buttons (hidden until row is hovered, sit above poster z-index).
-- **MovieCard** (`components/MovieCard.tsx`): 144×208 poster, Framer Motion scale-up on hover, play overlay, watchlist toggle (+/✓), "On Demand" badge, progress bar.
-
----
-
-## Watchlist
-
-- **Per-user watchlist** synced with backend `GET/POST/DELETE /watchlist`.
-- **`WatchlistContext`:** Keeps the set of watchlisted IDs in memory; toggle is optimistic (UI updates immediately, then syncs).
-- **Empty state:** Icon + message when the watchlist is empty.
-- **Grid layout:** Items displayed as a wrapped grid of MovieCards, same as movie rows.
+### Frameless Window & Platform Features
+- Custom title bar (minimize/maximize/close)
+- Draggable title region (`-webkit-app-region: drag`)
+- JWT stored in electron-store (encrypted, persists across sessions)
+- DevTools toggle: Ctrl+Shift+I in any build
 
 ---
 
-## PlayModal
+## Website — Exclusive Features
 
-`components/PlayModal.tsx` — centralized popup for all media interactions:
+### Admin: Symlink Health Check
+- Validate NTFS symlinks, path resolution, file counts
+- Repair suggestions for broken links
+- Admin-only access
 
-- **Backdrop / poster / title / overview / year / type badge.**
-- **Jellyfin items (movie):** Play button → `POST /jellyfin/play-job` → opens VideoPlayer.
-- **Resume prompt:** If `GET /jellyfin/item-progress/:itemId` returns 5–90% progress, shows "Continue from XX:XX" and "Start from Beginning" buttons before playing.
-- **Non-library movies:** P2P "Stream (P2P)" button (if digitally released) or disabled "Awaiting Release" (if not). Request button (Ombi).
-- **Digital release gating:** `GET /tmdb/movie/:id/digital-release` checked before showing the P2P button. Fail-open.
-- **P2P status panel:** Live progress bar, download speed, buffer %, channel ID during P2P buffering.
-- **TV shows:** Season selector buttons → episode list (lazy-loaded per season). Episodes with `onDemand: true` get an "On Demand" badge and a Play button. Episodes not in the library get a purple "P2P" button.
-- **Watchlist toggle** (+ icon) in the action row.
-- **Error banner** for play-job failures.
+### Admin: Jellyfin Restart
+- Trigger Jellyfin server restart from the web UI
 
----
+### Platform Downloads Page
+- `/downloads` with platform auto-detection (Windows/Linux/macOS/Android/iOS)
+- Windows .exe download link
+- Coming Soon placeholders for other platforms
 
-## Video player
-
-`components/VideoPlayer.tsx` — full-screen HLS.js player:
-
-- **HLS.js** with `withCredentials: false` (auth embedded in URL via `api_key`).
-- **Error recovery:** Fatal network errors → `hls.startLoad()` retry. Fatal media errors → `hls.recoverMediaError()` before showing the error UI.
-- **Playback heartbeat:** `POST /jellyfin/progress` every 10 s with `positionTicks`, `durationTicks`, `isPaused`.
-- **Stop reporting:** On close, immediately pauses the video then sends `{ isStopped: true }` to prevent ghost audio during the exit animation.
-- **Resume position:** Seeks to `startPositionTicks` after the HLS manifest parses.
-- **Custom subtitle renderer:** Fetches VTT text, parses cues, renders active cue as a positioned `<div>` overlay (more reliable than native `<track>`).
-- **Image-based subtitles (PGS):** Triggers a stream restart via `POST /jellyfin/play-job` with `subtitleStreamIndex` for server-side burn-in.
-- **Audio track switching:** Calls play-job with new `audioStreamIndex`, destroys old HLS instance, loads new URL.
-- **Quality switching:** Four presets (Original, 1080p, 720p, 480p) mapped to `maxBitrate`. Triggers full stream restart.
-- **Speed control:** 0.5× to 2× via `video.playbackRate`.
-- **Controls auto-hide:** 3 s inactivity timer, reset on `mousemove`. Close (X) button always visible (ghost-dim at 10% opacity when hidden, 100% on hover).
-- **Settings panel:** Tabbed (Audio / Subs / Quality / Speed), slides in above the controls bar.
-- **Keyboard shortcuts:** `Space`/`k` play/pause, `←`/`→` ±10 s, `↑`/`↓` volume, `f` fullscreen, `Esc` close.
-- **Framer Motion enter/exit animation** on the player container.
+### Mobile / Responsive
+- Mobile bottom navigation bar
+- Retractable sidebar on small screens
+- Touch-friendly button sizing
+- Responsive poster/card sizing
 
 ---
 
-## Profile
+## Backend (Server) — Shared Services
 
-- **Email update:** `PATCH /profile` with new email.
-- **Avatar upload:** File picker → `POST /profile/avatar` (multipart) → updates displayed avatar.
-- **Role badge:** Displays the user's role (user / admin).
+Both platforms connect to the same backend API (`https://apiv.dawn-star.co.uk`).
+
+### Core Services
+| Service | What it does |
+|---------|-------------|
+| **Jellyfin** | Media library, metadata, HLS transcoding, play-job generation |
+| **TMDB** | Trending content (5-min cache), metadata, release dates, episode data |
+| **Ombi** | User media requests; auto-queues approved requests to Pruna (5-min poll) |
+| **OpenSubtitles** | External subtitle search & SRT-to-VTT conversion |
+| **Prowlarr** | Torrent search (primary source for P2P and Pruna) |
+| **Torrentio** | Torrent search (secondary, rate-limited) |
+| **Real-Debrid** | Instant download links, cache verification, progress tracking |
+| **Plex** | Legacy library integration (optional) |
+| **Radarr/Sonarr** | File path resolution |
+
+### Pruna Pipeline
+State machine: `requested → scraping → downloading → waiting_zurg → symlinking → completed`
+
+- Quality scoring: 2160p (100) → 1080p (70) → 720p (40) → 480p (10)
+- Source scoring: remux (25) → blu-ray (20) → web-dl (15) → webrip (12) → hdtv (5)
+- Real-Debrid for instant downloads
+- NTFS symlinks from Zurg (`Y:/__all__/`) to Jellyfin libraries (`C:/ZurgMetadata/`)
+- Max concurrent configurable (default 5, range 1–20)
+- Ongoing show auto-follow: 30-min TMDB polling for new episodes
+
+### P2P Streaming
+- 10 concurrent WebTorrent channels via `.strm` virtual files
+- 5 MB buffer threshold before marking ready
+- HTTP Range-request delivery for Jellyfin compatibility
+- Prowlarr auto-search for magnet links
 
 ---
 
-## Admin
+## What's Next
 
-- **User list** from `GET /admin/users` with inline edit (email, role, password reset) and delete.
-- **Create user** form (username, password, email, role).
-- **System diagnostics** panel from `GET /admin/diagnostics` — Jellyfin ping, system info.
-- **Admin guard:** Redirects non-admin users to `/home` on mount.
+### Testing / Verification Needed
+1. **Gamepad focus ring rounding** — Verify box-shadow ring follows border-radius correctly on all element types (rounded-full pills, rounded-lg posters, rounded-xl sidebar icons, episode cards)
+2. **Gamepad hover effects** — Confirm poster scale + play overlay + watchlist button show on DPad focus
+3. **UAC-free updates** — Verify no admin prompts for users who installed to default `%LocalAppData%\Programs\VALOR`
+4. **Episode card highlight** — Verify `.ep-num-box` dark-red background activates on gamepad hover
+5. **Toggle focus preservation** — Test that On Demand / Anime toggle click via controller doesn't reset DPad position
 
----
-
-## Auto-update
-
-- **Background check:** 5 s after launch, `autoUpdater.checkForUpdates()` runs silently.
-- **UpdateBanner** (`components/UpdateBanner.tsx`): Appears at the bottom of the sidebar when:
-  - An update is available — shows version and **Download Update** button.
-  - Downloading — animated red progress bar + KB/s speed.
-  - Ready to install — pulsing green **Restart to Install** button.
-  - Error — message + **Retry** button.
-- **Dismissable:** Users can close the banner with the × button (except during download).
-- **Install on quit:** `autoInstallOnAppQuit = true` — update installs silently when the app is closed after a download, even if the user didn't click "Restart".
-
----
-
-## Not yet implemented / planned
-
-| Feature | Notes |
-|---------|-------|
-| **System tray + mini-player** | Show now-playing in tray; play/pause from tray menu |
-| **Native media keys** | `globalShortcut` for play/pause, prev/next |
-| **Discord Rich Presence** | Show "Watching [title]" in Discord status |
-| **Native notifications** | "P2P ready", "Download complete", "New episodes" |
-| **Local file playback** | Open a local video file via `dialog.showOpenDialog` |
-| **Background P2P** | Keep downloading after window is closed (tray mode) |
-| **mpv / native player** | Unlock HEVC, DTS, Dolby Atmos without server transcoding |
-| **Auto-launch on startup** | `auto-launch` npm package |
-| **Protocol handler** | `valor://play/movie/123` deep links |
-| **Picture-in-Picture window** | Floating always-on-top mini-player |
-| **App icon** | `build/icon.ico` / `build/icon.png` need to be supplied |
-| **Code signing** | EV certificate for SmartScreen bypass |
+### Planned / Upcoming
+| Feature | Platform | Notes |
+|---------|----------|-------|
+| Mobile apps (Android/iOS) | Mobile | Currently "Coming Soon" on downloads page |
+| Linux auto-updates | Desktop | AppImage update feed not configured |
+| Code signing (EV cert) | Desktop | Eliminates SmartScreen warning (~£300-500/yr) |
+| Native media keys | Desktop | `globalShortcut` for play/pause/prev/next |
+| System tray + mini-player | Desktop | Now-playing in tray, play/pause from tray menu |
+| Picture-in-Picture | Desktop | Floating always-on-top mini-player window |
+| Protocol handler | Desktop | `valor://play/movie/123` deep links |
+| PGS subtitle improvements | Both | Currently requires server-side burn-in + stream restart |
+| Background P2P | Desktop | Keep downloading after window closed (tray mode) |
+| mpv/native player option | Desktop | Unlock HEVC, DTS, Dolby Atmos without transcoding |
