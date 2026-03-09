@@ -87,9 +87,8 @@ export class MpvPlayer {
       '--keepaspect=yes',
       '--window-maximized=yes',
       '--hwdec=auto',
-      // Modern bottom-bar OSC
-      '--osc=yes',
-      '--script-opts=osc-layout=bottombar,osc-seekbarstyle=bar,osc-deadzonesize=0,osc-minmousemove=3',
+      // Disable built-in OSC — VALOR's transparent overlay provides controls
+      '--no-osc',
       '--osd-font-size=32',
       ipcFlag,
     ]
@@ -232,6 +231,10 @@ export class MpvPlayer {
   setAid(aid: number)          { return this.send(['set_property', 'aid', aid]) }
   /** Switch subtitle track by mpv's 1-based sid (0 = no subtitle) */
   setSid(sid: number)          { return this.send(['set_property', 'sid', sid]) }
+  /** Set playback speed (1.0 = normal) */
+  setSpeed(speed: number)      { return this.send(['set_property', 'speed', speed]) }
+  /** Load an external subtitle file */
+  subAdd(path: string)         { return this.send(['sub-add', path]) }
 
   quit() {
     this.quitting = true

@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  overlay: {
+    setIgnoreMouse: (ignore: boolean): Promise<void> => ipcRenderer.invoke('overlay:set-ignore-mouse', ignore),
+  },
   auth: {
     getToken: (): Promise<string | null> => ipcRenderer.invoke('auth:getToken'),
     setToken: (token: string): Promise<void> => ipcRenderer.invoke('auth:setToken', token),
@@ -52,6 +55,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     loadFile: (url: string): Promise<void> => ipcRenderer.invoke('mpv:load-file', url),
     setAid: (aid: number): Promise<void> => ipcRenderer.invoke('mpv:set-aid', aid),
     setSid: (sid: number): Promise<void> => ipcRenderer.invoke('mpv:set-sid', sid),
+    setSpeed: (speed: number): Promise<void> => ipcRenderer.invoke('mpv:set-speed', speed),
+    subAdd: (path: string): Promise<void> => ipcRenderer.invoke('mpv:sub-add', path),
     quit: (): Promise<void> => ipcRenderer.invoke('mpv:quit'),
     // Events pushed from main process → renderer.
     // Each `on*` replaces previous listeners for that channel to prevent leaks.

@@ -15,6 +15,7 @@ import Profile from '@/pages/Profile'
 import Admin from '@/pages/Admin'
 import Pruna from '@/pages/Pruna'
 import Settings from '@/pages/Settings'
+import PlayerOverlay from '@/pages/PlayerOverlay'
 export default function App() {
   return (
     <HashRouter>
@@ -25,6 +26,8 @@ export default function App() {
             <WatchlistProvider>
               <Routes>
                 <Route path="/login" element={<Login />} />
+                {/* mpv overlay — rendered in a separate transparent BrowserWindow */}
+                <Route path="/player-overlay" element={<PlayerOverlay />} />
                 <Route
                   path="/"
                   element={

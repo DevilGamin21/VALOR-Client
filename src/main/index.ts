@@ -10,6 +10,7 @@ const store = new Store<{ token: string }>()
 const API_ORIGIN = 'https://valor.dawn-star.co.uk'
 
 let mainWindow: BrowserWindow | null = null
+let overlayWindow: BrowserWindow | null = null
 let mpvInstance: MpvPlayer | null = null
 let mpvPayload: unknown = null
 
@@ -226,9 +227,71 @@ ipcMain.handle('update:download', () => autoUpdater.downloadUpdate())
 ipcMain.handle('update:install', () => autoUpdater.quitAndInstall(true, true))
 ipcMain.handle('update:check', () => autoUpdater.checkForUpdates().catch(() => {}))
 
+// ─── Overlay window for mpv ──────────────────────────────────────────────────
+
+function createOverlayWindow(): void {
+  if (overlayWindow) { overlayWindow.close(); overlayWindow = null }
+
+  overlayWindow = new BrowserWindow({
+    width: 1920,
+    height: 1080,
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+      contextIsolation: true,
+      webSecurity: true,
+      backgroundThrottling: false,
+    },
+  })
+
+  overlayWindow.maximize()
+
+  // Click-through: transparent areas pass events to mpv window behind
+  overlayWindow.setIgnoreMouseEvents(true, { forward: true })
+
+  const rendererUrl = process.env['ELECTRON_RENDERER_URL']
+  if (rendererUrl) {
+    overlayWindow.loadURL(`${rendererUrl}#/player-overlay`)
+  } else {
+    overlayWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: '/player-overlay' })
+  }
+
+  // Ctrl+Shift+I toggles DevTools in overlay too
+  overlayWindow.webContents.on('before-input-event', (_event, input) => {
+    if (input.control && input.shift && input.key === 'I') {
+      overlayWindow?.webContents.toggleDevTools()
+    }
+  })
+
+  overlayWindow.on('closed', () => { overlayWindow = null })
+}
+
+function closeOverlayWindow(): void {
+  if (overlayWindow) {
+    overlayWindow.close()
+    overlayWindow = null
+  }
+}
+
 // ─── mpv Player IPC ──────────────────────────────────────────────────────────
 ipcMain.handle('mpv:available', () => isMpvAvailable())
 ipcMain.handle('mpv:get-payload', () => mpvPayload)
+
+// Overlay mouse events: renderer tells us when cursor is over interactive controls
+ipcMain.handle('overlay:set-ignore-mouse', (_e, ignore: boolean) => {
+  if (!overlayWindow) return
+  if (ignore) {
+    overlayWindow.setIgnoreMouseEvents(true, { forward: true })
+  } else {
+    overlayWindow.setIgnoreMouseEvents(false)
+  }
+})
 
 ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
   // Quit any existing instance
@@ -239,18 +302,29 @@ ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
   const url = p.job.directStreamUrl || p.job.hlsUrl
 
   mpvInstance = new MpvPlayer()
+
+  // Helper to send to both main window and overlay
+  const broadcast = (channel: string, ...args: unknown[]) => {
+    mainWindow?.webContents.send(channel, ...args)
+    overlayWindow?.webContents.send(channel, ...args)
+  }
+
   mpvInstance.on({
-    timeupdate: (time) => mainWindow?.webContents.send('mpv:time', time),
-    duration:   (dur)  => mainWindow?.webContents.send('mpv:duration', dur),
-    paused:     (v)    => mainWindow?.webContents.send('mpv:paused', v),
+    timeupdate: (time) => broadcast('mpv:time', time),
+    duration:   (dur)  => broadcast('mpv:duration', dur),
+    paused:     (v)    => broadcast('mpv:paused', v),
     ended:      ()     => {
-      mainWindow?.webContents.send('mpv:ended')
+      broadcast('mpv:ended')
       mpvInstance = null
       mpvPayload = null
+      closeOverlayWindow()
     },
-    error:      (err)  => mainWindow?.webContents.send('mpv:error', err),
-    ready:      ()     => mainWindow?.webContents.send('mpv:ready'),
+    error:      (err)  => broadcast('mpv:error', err),
+    ready:      ()     => broadcast('mpv:ready'),
   })
+
+  // Create overlay window before launching mpv so it's ready when mpv opens
+  createOverlayWindow()
 
   await mpvInstance.launch(url, {
     startSecs: p.startPositionTicks > 0 ? p.startPositionTicks / 10_000_000 : undefined,
@@ -267,7 +341,9 @@ ipcMain.handle('mpv:volume',        (_e, vol: number)  => mpvInstance?.setVolume
 ipcMain.handle('mpv:load-file',     (_e, url: string)  => mpvInstance?.loadFile(url))
 ipcMain.handle('mpv:set-aid',       (_e, aid: number)  => mpvInstance?.setAid(aid))
 ipcMain.handle('mpv:set-sid',       (_e, sid: number)  => mpvInstance?.setSid(sid))
-ipcMain.handle('mpv:quit',          ()         => { mpvInstance?.quit(); mpvInstance = null; mpvPayload = null })
+ipcMain.handle('mpv:set-speed',    (_e, speed: number) => mpvInstance?.setSpeed(speed))
+ipcMain.handle('mpv:sub-add',      (_e, path: string) => mpvInstance?.subAdd(path))
+ipcMain.handle('mpv:quit',          ()         => { mpvInstance?.quit(); mpvInstance = null; mpvPayload = null; closeOverlayWindow() })
 
 // Bypass Chromium's autoplay policy so audio plays without requiring an active
 // user gesture at the exact moment video.play() is called. Without this,
@@ -287,6 +363,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   if (mpvInstance) { mpvInstance.quit(); mpvInstance = null }
+  closeOverlayWindow()
   if (discordRpc && discordReady) {
     discordRpc.clearActivity().catch(() => {})
     discordRpc.destroy().catch(() => {})

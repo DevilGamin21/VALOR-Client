@@ -42,6 +42,9 @@ declare const __APP_VERSION__: string
 declare global {
   interface Window {
     electronAPI: {
+      overlay: {
+        setIgnoreMouse: (ignore: boolean) => Promise<void>
+      }
       auth: {
         getToken: () => Promise<string | null>
         setToken: (token: string) => Promise<void>
@@ -83,6 +86,8 @@ declare global {
         loadFile: (url: string) => Promise<void>
         setAid: (aid: number) => Promise<void>
         setSid: (sid: number) => Promise<void>
+        setSpeed: (speed: number) => Promise<void>
+        subAdd: (path: string) => Promise<void>
         quit: () => Promise<void>
         onReady: (cb: () => void) => void
         onTime: (cb: (time: number) => void) => void
