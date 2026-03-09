@@ -117,13 +117,21 @@ function createWindow(): void {
 
   // ── Gamepad: keep page "visible" when unfocused ─────────────────────────
   // Chromium's Gamepad API checks Page::IsPageVisible() at the C++ level.
-  // JS overrides and CDP Emulation.setFocusEmulationEnabled do NOT affect
-  // this internal check. incrementCapturerCount() tells Chromium the page is
-  // being screen-captured, which forces the page to stay "visible" internally.
-  // This makes navigator.getGamepads() return data even when unfocused.
-  mainWindow.webContents.incrementCapturerCount()
-  mainWindow.on('closed', () => {
-    try { mainWindow?.webContents.decrementCapturerCount() } catch { /* window gone */ }
+  // incrementCapturerCount() forces the page to stay "visible" internally
+  // (Chromium treats captured pages as visible). Only activate when unfocused
+  // to avoid compositor side-effects during normal use.
+  let capturerActive = false
+  mainWindow.on('blur', () => {
+    if (!capturerActive && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.incrementCapturerCount()
+      capturerActive = true
+    }
+  })
+  mainWindow.on('focus', () => {
+    if (capturerActive && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.decrementCapturerCount()
+      capturerActive = false
+    }
   })
 
   // Inject Origin/Referer for ALL outgoing requests from the renderer.
