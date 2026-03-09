@@ -103,18 +103,34 @@
   animation-delay: 4s;
 }
 
-/* Gamepad heartbeat glow animation */
+/* Gamepad heartbeat glow animation — uses box-shadow so it follows border-radius */
 @keyframes gp-heartbeat {
-  0%, 100% { box-shadow: 0 0 8px rgba(220, 38, 38, 0.5), inset 0 0 0 0 transparent; }
-  50%      { box-shadow: 0 0 18px rgba(220, 38, 38, 0.8), inset 0 0 0 0 transparent; }
+  0%, 100% { box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.85), 0 0 10px rgba(220, 38, 38, 0.4); }
+  50%      { box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.85), 0 0 22px rgba(220, 38, 38, 0.7); }
 }
 
 /* Gamepad spatial-navigation focus ring */
 .gp-focused {
-  outline: 4px solid rgba(220, 38, 38, 0.85) !important;
-  outline-offset: 2px;
-  border-radius: inherit;
+  outline: none !important;
   animation: gp-heartbeat 1.5s ease-in-out infinite;
+  position: relative;
+  z-index: 10;
+}
+
+/* ── Gamepad hover effects (mirror mouse hover) ────────────────────────── */
+
+/* Poster cards: scale up + show play overlay + watchlist button */
+.gp-focused.group\/card {
+  transform: scale(1.05);
+}
+.gp-focused.group\/card .group-hover\/card\:opacity-100 {
+  opacity: 1 !important;
+}
+
+/* Buttons & pills: subtle brighten */
+.gp-focused[class*="bg-white/10"],
+.gp-focused[class*="bg-white/[0.03]"] {
+  background: rgba(255, 255, 255, 0.12) !important;
 }
 
 /* Episode cards: red highlight on gamepad hover */

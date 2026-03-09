@@ -26,7 +26,7 @@ export default function MovieCard({ item, onPlay }: Props) {
   return (
     <motion.div
       data-focusable
-      className="relative flex-shrink-0 w-36 cursor-pointer group/card"
+      className="relative flex-shrink-0 w-36 rounded-lg cursor-pointer group/card"
       whileHover={{ scale: 1.05, zIndex: 10 }}
       transition={{ duration: 0.2 }}
       onClick={() => onPlay(item)}

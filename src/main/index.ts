@@ -111,31 +111,8 @@ function createWindow(): void {
       sandbox: false,
       contextIsolation: true,
       webSecurity: true,
-      backgroundThrottling: false   // Keep gamepad polling active when window loses focus
+      backgroundThrottling: false
     }
-  })
-
-  // ── Gamepad: keep page "visible" when unfocused ─────────────────────────
-  // Chromium's Gamepad API checks Page::IsPageVisible() at the C++ level.
-  // Use CDP to emulate focus + override JS visibility so gamepads stay active.
-  try { mainWindow.webContents.debugger.attach('1.3') } catch { /* ok */ }
-  mainWindow.on('blur', () => {
-    try {
-      mainWindow?.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true })
-    } catch { /* ignore */ }
-  })
-  mainWindow.on('focus', () => {
-    try {
-      mainWindow?.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: false })
-    } catch { /* ignore */ }
-  })
-  // JS-level visibility override as fallback
-  mainWindow.webContents.on('did-finish-load', () => {
-    mainWindow?.webContents.executeJavaScript(`
-      Object.defineProperty(document, 'visibilityState', { get: () => 'visible', configurable: true });
-      Object.defineProperty(document, 'hidden', { get: () => false, configurable: true });
-      document.addEventListener('visibilitychange', (e) => e.stopImmediatePropagation(), true);
-    `)
   })
 
   // Inject Origin/Referer for ALL outgoing requests from the renderer.
@@ -252,12 +229,6 @@ ipcMain.handle('update:check', () => autoUpdater.checkForUpdates().catch(() => {
 // inside HLS.js's MANIFEST_PARSED callback after an API round-trip).
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
-// Keep renderer alive and gamepad-accessible even when window loses OS focus.
-// These prevent Chromium from throttling/suspending the renderer process and
-// ensure navigator.getGamepads() continues returning data in the background.
-app.commandLine.appendSwitch('disable-background-timer-throttling')
-app.commandLine.appendSwitch('disable-renderer-backgrounding')
-app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
