@@ -167,8 +167,17 @@ export function useGamepad(options: UseGamepadOptions): { connected: boolean } {
       stopPolling()
     }
 
+    // When the window regains focus, re-check for gamepads.
+    // Chromium may fire gamepaddisconnected when focus is lost (e.g. mpv overlay)
+    // but NOT re-fire gamepadconnected when focus returns — so re-probe manually.
+    function onFocus() {
+      if (polling) return
+      if (navigator.getGamepads()[0]) onConnect()
+    }
+
     window.addEventListener('gamepadconnected', onConnect)
     window.addEventListener('gamepaddisconnected', onDisconnect)
+    window.addEventListener('focus', onFocus)
 
     // If a gamepad is already connected when the hook mounts, start immediately.
     if (navigator.getGamepads()[0]) onConnect()
@@ -176,6 +185,7 @@ export function useGamepad(options: UseGamepadOptions): { connected: boolean } {
     return () => {
       window.removeEventListener('gamepadconnected', onConnect)
       window.removeEventListener('gamepaddisconnected', onDisconnect)
+      window.removeEventListener('focus', onFocus)
       stopPolling()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

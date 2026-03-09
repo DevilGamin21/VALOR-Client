@@ -200,14 +200,19 @@ export default function PlayerOverlay() {
 
   // ── Make page background transparent ────────────────────────────────────
   useEffect(() => {
-    document.documentElement.style.background = 'transparent'
-    document.body.style.background = 'transparent'
-    const root = document.getElementById('root')
-    if (root) root.style.background = 'transparent'
+    // Must override the #0a0a0a background-color from index.css for transparent overlay.
+    // Both background and background-color are set with !important to ensure
+    // the Electron transparent BrowserWindow actually shows mpv behind it.
+    const targets = [document.documentElement, document.body, document.getElementById('root')].filter(Boolean) as HTMLElement[]
+    for (const el of targets) {
+      el.style.setProperty('background', 'transparent', 'important')
+      el.style.setProperty('background-color', 'transparent', 'important')
+    }
     return () => {
-      document.documentElement.style.background = ''
-      document.body.style.background = ''
-      if (root) root.style.background = ''
+      for (const el of targets) {
+        el.style.removeProperty('background')
+        el.style.removeProperty('background-color')
+      }
     }
   }, [])
 
@@ -228,25 +233,20 @@ export default function PlayerOverlay() {
 
   // ── Subscribe to IPC events ──────────────────────────────────────────────
   useEffect(() => {
-    window.electronAPI.mpv.getPayload().then((p) => {
-      if (!p) return
-      setPayload(p)
-      setCurrentJob(p)
-      setLocalEpId(p.currentEpisodeId)
-      setEpisodeListState(p.episodeList ?? [])
-      setBuffering(true)
-      setError('')
-      setEnded(false)
-      setTime(0)
-      setDuration(0)
-    }).catch(() => {})
-
-    window.electronAPI.mpv.onReady(() => { setBuffering(false) })
+    // Register mpv event listeners FIRST, then fetch payload.
+    // This avoids missing the 'ready' event due to race conditions.
+    window.electronAPI.mpv.onReady(() => {
+      console.log('[overlay] mpv ready')
+      setBuffering(false)
+    })
     window.electronAPI.mpv.onTime((t) => {
       setTime(t)
       timeRef.current = t
+      // If we're still showing the spinner when time updates arrive, clear it
+      setBuffering(false)
     })
     window.electronAPI.mpv.onDuration((d) => {
+      console.log('[overlay] mpv duration:', d)
       setDuration(d)
       durationRef.current = d
     })
@@ -255,7 +255,33 @@ export default function PlayerOverlay() {
       if (!p) setBuffering(false)
     })
     window.electronAPI.mpv.onEnded(() => { setEnded(true) })
-    window.electronAPI.mpv.onError((e) => { setError(e); setBuffering(false) })
+    window.electronAPI.mpv.onError((e) => {
+      console.error('[overlay] mpv error:', e)
+      setError(e)
+      setBuffering(false)
+    })
+
+    // Now fetch the payload (may already be set in main process)
+    const fetchPayload = () => {
+      window.electronAPI.mpv.getPayload().then((p) => {
+        if (!p) {
+          // Payload not yet set — retry in 200ms (overlay may have loaded before mpv:launch set it)
+          setTimeout(fetchPayload, 200)
+          return
+        }
+        console.log('[overlay] Got payload:', p.title, '| itemId:', p.itemId)
+        setPayload(p)
+        setCurrentJob(p)
+        setLocalEpId(p.currentEpisodeId)
+        setEpisodeListState(p.episodeList ?? [])
+        setBuffering(true)
+        setError('')
+        setEnded(false)
+        setTime(0)
+        setDuration(0)
+      }).catch(() => {})
+    }
+    fetchPayload()
 
     return () => { window.electronAPI.mpv.removeAllListeners() }
   }, [])

@@ -277,6 +277,10 @@ function closeOverlayWindow(): void {
     overlayWindow.close()
     overlayWindow = null
   }
+  // Restore focus to the main window so gamepad input resumes
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.focus()
+  }
 }
 
 // ─── mpv Player IPC ──────────────────────────────────────────────────────────
@@ -300,6 +304,12 @@ ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
 
   const p = payload as { job: { directStreamUrl?: string; hlsUrl: string }; startPositionTicks: number; title: string }
   const url = p.job.directStreamUrl || p.job.hlsUrl
+  console.log('[mpv:launch] url:', url?.slice(0, 120), '| startTicks:', p.startPositionTicks)
+
+  if (!url) {
+    console.error('[mpv:launch] No URL found in payload — aborting')
+    return
+  }
 
   mpvInstance = new MpvPlayer()
 
@@ -326,10 +336,19 @@ ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
   // Create overlay window before launching mpv so it's ready when mpv opens
   createOverlayWindow()
 
-  await mpvInstance.launch(url, {
-    startSecs: p.startPositionTicks > 0 ? p.startPositionTicks / 10_000_000 : undefined,
-    title: p.title,
-  })
+  try {
+    await mpvInstance.launch(url, {
+      startSecs: p.startPositionTicks > 0 ? p.startPositionTicks / 10_000_000 : undefined,
+      title: p.title,
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[mpv:launch] Failed:', msg)
+    broadcast('mpv:error', `mpv failed to start: ${msg}`)
+    mpvInstance = null
+    mpvPayload = null
+    closeOverlayWindow()
+  }
 })
 
 ipcMain.handle('mpv:toggle-pause',  ()         => mpvInstance?.togglePause())
