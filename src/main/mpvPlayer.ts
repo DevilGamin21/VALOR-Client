@@ -82,12 +82,13 @@ export class MpvPlayer {
     const args: string[] = [
       url,
       '--no-terminal',
-      '--osc=no',
+      '--osc=yes',
       '--no-border',
       '--keepaspect=yes',
       '--window-maximized=yes',
       '--idle=yes',
       '--keep-open=yes',
+      '--hwdec=auto',
       // Let mpv auto-select vo/ao — avoids GPU/WASAPI init failures
       ipcFlag,
     ]

@@ -13,6 +13,7 @@
 | Watchlist (server-synced) | Yes | Yes |
 | **Playback** | | |
 | HLS.js video player | Yes | Yes |
+| mpv external player (HEVC, AV1, native hw decode) | Yes | No |
 | Direct Play (no transcode, GPU decode) | Yes | No |
 | Quality presets (4K/1440p/1080p/720p/480p) | Yes | Yes |
 | Quality switching mid-playback | Yes | Yes |
@@ -67,6 +68,16 @@
 - Focus memory across modal open/close (pre-modal position restored)
 - Disabled when VideoPlayer is open (player has its own gamepad controls)
 - React re-render fix: `requestAnimationFrame` re-applies `gp-focused` after `click()`
+
+### mpv Player Engine
+- Optional external player using mpv (bundled with the app in `resources/mpv/`)
+- Setting in Settings > Playback > Player Engine (only visible when mpv.exe detected)
+- Benefits: native HEVC/AV1 decoding, GPU hardware acceleration, lower CPU usage
+- mpv opens in its own borderless maximized window with native OSD controls
+- All VALOR features work via IPC: heartbeat, progress tracking, episode auto-advance, Discord RPC, sleep timer
+- Episode switching sends `loadfile` command to mpv — no restart needed
+- Track switching (audio/subtitles) handled natively by mpv via `aid`/`sid` properties
+- Falls back to built-in player if mpv not available
 
 ### Direct Play Mode
 - Hardware GPU detection on first launch (MediaCapabilities API for H.264 1080p/30fps/10Mbps)
@@ -186,4 +197,4 @@ State machine: `requested → scraping → downloading → waiting_zurg → syml
 | Protocol handler | Desktop | `valor://play/movie/123` deep links |
 | PGS subtitle improvements | Both | Currently requires server-side burn-in + stream restart |
 | Background P2P | Desktop | Keep downloading after window closed (tray mode) |
-| mpv/native player option | Desktop | Unlock HEVC, DTS, Dolby Atmos without transcoding |
+| mpv/native player option | Desktop | **Implemented** — Settings > Playback > Player Engine |

@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { useSettings, detectDirectPlaySupport, type QualityPreset, type SubtitleSize } from '@/contexts/SettingsContext'
-import { Zap, Film, Mic2, Subtitles, SkipForward, RotateCcw, Info, Cpu, CheckCircle2, XCircle, RefreshCw, AlertTriangle, MessageSquare } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { useSettings, detectDirectPlaySupport, type QualityPreset, type SubtitleSize, type PlayerEngine } from '@/contexts/SettingsContext'
+import { Zap, Film, Mic2, Subtitles, SkipForward, RotateCcw, Info, Cpu, CheckCircle2, XCircle, RefreshCw, AlertTriangle, MessageSquare, Monitor } from 'lucide-react'
 
 const QUALITY_OPTIONS: { value: QualityPreset; label: string; desc: string }[] = [
   { value: 'original', label: 'Original', desc: 'No bitrate cap — stream copy when possible' },
@@ -63,11 +63,16 @@ export default function Settings() {
     preferredAudioLang, preferredSubtitleLang,
     subtitleSize, subtitleBgOpacity,
     hasRunHardwareScan, detectedDirectPlay,
-    discordRPC,
+    discordRPC, playerEngine,
     update, reset,
   } = useSettings()
 
   const [scanning, setScanning] = useState(false)
+  const [mpvAvailable, setMpvAvailable] = useState(false)
+
+  useEffect(() => {
+    window.electronAPI.mpv.isAvailable().then(setMpvAvailable).catch(() => {})
+  }, [])
 
   async function handleRescan() {
     setScanning(true)
@@ -169,6 +174,52 @@ export default function Settings() {
             <Toggle checked={autoplayNext} onChange={() => update({ autoplayNext: !autoplayNext })} />
           </div>
         </div>
+
+        {/* Player Engine */}
+        {mpvAvailable && (
+          <div className="rounded-xl bg-white/5 border border-white/8 p-4 space-y-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <Monitor size={15} className="text-white/50 flex-shrink-0" />
+                <p className="text-sm font-medium text-white">Player Engine</p>
+              </div>
+              <p className="text-xs text-white/45 mt-1.5 leading-relaxed">
+                Choose the video player backend. mpv offers better codec support (HEVC, AV1),
+                hardware-accelerated decoding, and lower CPU usage for high-bitrate content.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { value: 'builtin' as PlayerEngine, label: 'Built-in', desc: 'HTML5 video + HLS.js' },
+                { value: 'mpv' as PlayerEngine, label: 'mpv', desc: 'External player — wider codec support' },
+              ]).map((opt) => (
+                <button
+                  data-focusable
+                  key={opt.value}
+                  onClick={() => update({ playerEngine: opt.value })}
+                  className={`text-left px-3 py-2.5 rounded-lg border transition ${
+                    playerEngine === opt.value
+                      ? 'bg-red-600/20 border-red-500/50 text-white'
+                      : 'bg-white/5 border-white/8 text-white/60 hover:bg-white/8 hover:text-white'
+                  }`}
+                >
+                  <p className="text-sm font-medium">{opt.label}</p>
+                  <p className="text-[10px] text-white/40 mt-0.5 leading-tight">{opt.desc}</p>
+                </button>
+              ))}
+            </div>
+            {playerEngine === 'mpv' && (
+              <div className="flex items-start gap-2 text-xs text-blue-400/80 bg-blue-400/8 border border-blue-400/15 rounded-lg px-3 py-2">
+                <Info size={12} className="flex-shrink-0 mt-0.5" />
+                <p>
+                  mpv opens in its own window with native controls. Audio/subtitle track switching,
+                  seeking, and keyboard shortcuts all work natively. Episode auto-advance and
+                  progress tracking are handled by VALOR in the background.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       {/* ── Integrations ──────────────────────────────────────────────────────── */}

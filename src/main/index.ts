@@ -4,11 +4,14 @@ import { exec } from 'child_process'
 import Store from 'electron-store'
 import { autoUpdater } from 'electron-updater'
 import type { Client as DiscordRpcClient, Presence } from 'discord-rpc'
+import { MpvPlayer, isMpvAvailable } from './mpvPlayer'
 
 const store = new Store<{ token: string }>()
 const API_ORIGIN = 'https://valor.dawn-star.co.uk'
 
 let mainWindow: BrowserWindow | null = null
+let mpvInstance: MpvPlayer | null = null
+let mpvPayload: unknown = null
 
 // ─── Discord Rich Presence ────────────────────────────────────────────────────
 // Create an application at https://discord.com/developers/applications, then
@@ -223,6 +226,45 @@ ipcMain.handle('update:download', () => autoUpdater.downloadUpdate())
 ipcMain.handle('update:install', () => autoUpdater.quitAndInstall(true, true))
 ipcMain.handle('update:check', () => autoUpdater.checkForUpdates().catch(() => {}))
 
+// ─── mpv Player IPC ──────────────────────────────────────────────────────────
+ipcMain.handle('mpv:available', () => isMpvAvailable())
+ipcMain.handle('mpv:get-payload', () => mpvPayload)
+
+ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
+  // Quit any existing instance
+  if (mpvInstance) { mpvInstance.quit(); mpvInstance = null }
+  mpvPayload = payload
+
+  const p = payload as { job: { directStreamUrl?: string; hlsUrl: string }; startPositionTicks: number; title: string }
+  const url = p.job.directStreamUrl || p.job.hlsUrl
+
+  mpvInstance = new MpvPlayer()
+  mpvInstance.on({
+    timeupdate: (time) => mainWindow?.webContents.send('mpv:time', time),
+    duration:   (dur)  => mainWindow?.webContents.send('mpv:duration', dur),
+    paused:     (v)    => mainWindow?.webContents.send('mpv:paused', v),
+    ended:      ()     => mainWindow?.webContents.send('mpv:ended'),
+    error:      (err)  => mainWindow?.webContents.send('mpv:error', err),
+    ready:      ()     => mainWindow?.webContents.send('mpv:ready'),
+  })
+
+  await mpvInstance.launch(url, {
+    startSecs: p.startPositionTicks > 0 ? p.startPositionTicks / 10_000_000 : undefined,
+    title: p.title,
+  })
+})
+
+ipcMain.handle('mpv:toggle-pause',  ()         => mpvInstance?.togglePause())
+ipcMain.handle('mpv:pause',         ()         => mpvInstance?.pause())
+ipcMain.handle('mpv:resume',        ()         => mpvInstance?.resume())
+ipcMain.handle('mpv:seek',          (_e, secs: number) => mpvInstance?.seek(secs))
+ipcMain.handle('mpv:seek-absolute', (_e, secs: number) => mpvInstance?.seekAbsolute(secs))
+ipcMain.handle('mpv:volume',        (_e, vol: number)  => mpvInstance?.setVolume(vol))
+ipcMain.handle('mpv:load-file',     (_e, url: string)  => mpvInstance?.loadFile(url))
+ipcMain.handle('mpv:set-aid',       (_e, aid: number)  => mpvInstance?.setAid(aid))
+ipcMain.handle('mpv:set-sid',       (_e, sid: number)  => mpvInstance?.setSid(sid))
+ipcMain.handle('mpv:quit',          ()         => { mpvInstance?.quit(); mpvInstance = null; mpvPayload = null })
+
 // Bypass Chromium's autoplay policy so audio plays without requiring an active
 // user gesture at the exact moment video.play() is called. Without this,
 // Chromium silently mutes audio when video.play() fires asynchronously (e.g.
@@ -240,6 +282,7 @@ app.whenReady().then(() => {
 })
 
 app.on('before-quit', () => {
+  if (mpvInstance) { mpvInstance.quit(); mpvInstance = null }
   if (discordRpc && discordReady) {
     discordRpc.clearActivity().catch(() => {})
     discordRpc.destroy().catch(() => {})

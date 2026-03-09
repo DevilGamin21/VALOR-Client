@@ -83,10 +83,18 @@ function getSameRowItems(el: Element): Element[] {
   if (scrollRow) {
     return Array.from(scrollRow.querySelectorAll('[data-focusable]')).filter(isVisible)
   }
-  // Fallback: same <section>
+  // Second: same <section>
   const section = findSection(el)
   if (section) {
     return Array.from(section.querySelectorAll('[data-focusable]')).filter(isVisible)
+  }
+  // Third: nearest parent that contains multiple focusable siblings
+  // (catches toggle rows, flex containers, etc.)
+  let parent = el.parentElement
+  while (parent && parent !== document.body) {
+    const items = Array.from(parent.querySelectorAll('[data-focusable]')).filter(isVisible)
+    if (items.length > 1) return items
+    parent = parent.parentElement
   }
   return []
 }
