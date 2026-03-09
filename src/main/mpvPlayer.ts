@@ -61,6 +61,7 @@ export class MpvPlayer {
   private recvBuf = ''
   private readonly ipcPath: string
   private ipcConnected = false
+  private quitting = false
 
   constructor() {
     this.ipcPath = getIpcPath()
@@ -82,14 +83,14 @@ export class MpvPlayer {
     const args: string[] = [
       url,
       '--no-terminal',
-      '--osc=yes',
-      '--no-border',
+      '--force-window=yes',
       '--keepaspect=yes',
       '--window-maximized=yes',
-      '--idle=yes',
-      '--keep-open=yes',
       '--hwdec=auto',
-      // Let mpv auto-select vo/ao — avoids GPU/WASAPI init failures
+      // Modern bottom-bar OSC
+      '--osc=yes',
+      '--script-opts=osc-layout=bottombar,osc-seekbarstyle=bar,osc-deadzonesize=0,osc-minmousemove=3',
+      '--osd-font-size=32',
       ipcFlag,
     ]
 
@@ -110,10 +111,14 @@ export class MpvPlayer {
 
     this.proc.on('exit', (code, signal) => {
       this.ipcClient?.destroy()
-      // Don't fire 'ended' here — eof-reached property already fires it for normal end.
-      // Only report unexpected crashes (non-zero exit, no signal) AFTER IPC was established,
-      // because pre-IPC crashes are already caught and reported by waitForIpc().
-      if (code !== 0 && signal == null && this.ipcConnected) {
+      this.ipcClient = null
+      // Fire 'ended' whenever mpv exits after IPC was established.
+      // This covers: user closing the mpv window, normal EOF, quit command.
+      // The quit() method sets this.quitting to suppress the event when WE initiated the close.
+      if (this.ipcConnected && !this.quitting) {
+        this.handlers.ended?.()
+      }
+      if (code !== 0 && code !== null && signal == null && this.ipcConnected && !this.quitting) {
         this.handlers.error?.(`mpv exited unexpectedly (code ${code})`)
       }
     })
@@ -229,11 +234,13 @@ export class MpvPlayer {
   setSid(sid: number)          { return this.send(['set_property', 'sid', sid]) }
 
   quit() {
+    this.quitting = true
     this.send(['quit']).catch(() => {})
     setTimeout(() => {
       if (this.proc && !this.proc.killed) this.proc.kill()
     }, 600)
     this.ipcClient?.destroy()
+    this.ipcClient = null
   }
 }
 

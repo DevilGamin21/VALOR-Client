@@ -243,7 +243,11 @@ ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
     timeupdate: (time) => mainWindow?.webContents.send('mpv:time', time),
     duration:   (dur)  => mainWindow?.webContents.send('mpv:duration', dur),
     paused:     (v)    => mainWindow?.webContents.send('mpv:paused', v),
-    ended:      ()     => mainWindow?.webContents.send('mpv:ended'),
+    ended:      ()     => {
+      mainWindow?.webContents.send('mpv:ended')
+      mpvInstance = null
+      mpvPayload = null
+    },
     error:      (err)  => mainWindow?.webContents.send('mpv:error', err),
     ready:      ()     => mainWindow?.webContents.send('mpv:ready'),
   })

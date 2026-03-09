@@ -53,27 +53,37 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setAid: (aid: number): Promise<void> => ipcRenderer.invoke('mpv:set-aid', aid),
     setSid: (sid: number): Promise<void> => ipcRenderer.invoke('mpv:set-sid', sid),
     quit: (): Promise<void> => ipcRenderer.invoke('mpv:quit'),
-    // Events pushed from main process → overlay renderer
-    onJob: (cb: (payload: unknown) => void): void => {
-      ipcRenderer.on('mpv:job', (_e, payload) => cb(payload))
-    },
+    // Events pushed from main process → renderer.
+    // Each `on*` replaces previous listeners for that channel to prevent leaks.
     onReady: (cb: () => void): void => {
+      ipcRenderer.removeAllListeners('mpv:ready')
       ipcRenderer.on('mpv:ready', () => cb())
     },
     onTime: (cb: (time: number) => void): void => {
+      ipcRenderer.removeAllListeners('mpv:time')
       ipcRenderer.on('mpv:time', (_e, time) => cb(time))
     },
     onDuration: (cb: (duration: number) => void): void => {
+      ipcRenderer.removeAllListeners('mpv:duration')
       ipcRenderer.on('mpv:duration', (_e, duration) => cb(duration))
     },
     onPaused: (cb: (paused: boolean) => void): void => {
+      ipcRenderer.removeAllListeners('mpv:paused')
       ipcRenderer.on('mpv:paused', (_e, paused) => cb(paused))
     },
     onEnded: (cb: () => void): void => {
+      ipcRenderer.removeAllListeners('mpv:ended')
       ipcRenderer.on('mpv:ended', () => cb())
     },
     onError: (cb: (err: string) => void): void => {
+      ipcRenderer.removeAllListeners('mpv:error')
       ipcRenderer.on('mpv:error', (_e, err) => cb(err))
+    },
+    /** Remove all mpv event listeners (call on cleanup) */
+    removeAllListeners: (): void => {
+      for (const ch of ['mpv:ready', 'mpv:time', 'mpv:duration', 'mpv:paused', 'mpv:ended', 'mpv:error']) {
+        ipcRenderer.removeAllListeners(ch)
+      }
     },
   }
 })

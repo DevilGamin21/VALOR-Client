@@ -19,7 +19,6 @@ import {
   Globe,
   Search,
   Check,
-  Monitor
 } from 'lucide-react'
 import * as api from '@/services/api'
 import type { PlayJob, AudioTrack, SubtitleTrack, EpisodeInfo } from '@/types/media'
@@ -92,9 +91,8 @@ const SUBTITLE_FONT_SIZE: Record<SubtitleSize, string> = {
 
 export default function VideoPlayer({ job, startPositionTicks, onClose }: Props) {
   const { episodeList, currentEpisodeId, updateJob, setEpisodeList, setCurrentEpisodeId } = usePlayer()
-  const { autoplayNext, preferredAudioLang, preferredSubtitleLang, directPlay: settingsDirectPlay, defaultQuality, subtitleSize, subtitleBgOpacity, discordRPC, playerEngine } = useSettings()
+  const { autoplayNext, preferredAudioLang, preferredSubtitleLang, directPlay: settingsDirectPlay, defaultQuality, subtitleSize, subtitleBgOpacity, discordRPC } = useSettings()
 
-  const isMpvMode = playerEngine === 'mpv'
   const isDirectPlay = !!job.directStreamUrl
 
   // Persist audio/subtitle preferences per series (TV) or per item (movie)
@@ -251,85 +249,8 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     hls.attachMedia(video)
   }, [startPositionTicks])
 
-  // ─── mpv state ──────────────────────────────────────────────────────────────
-  const [mpvReady, setMpvReady] = useState(false)
-  const mpvTimeRef = useRef(0)
-  const mpvDurationRef = useRef(0)
-
-  // ─── mpv launch & events ──────────────────────────────────────────────────
+  // Initial load
   useEffect(() => {
-    if (!isMpvMode) return
-
-    const mpvApi = window.electronAPI.mpv
-    const url = job.directStreamUrl || job.hlsUrl
-
-    // Subscribe to mpv events
-    mpvApi.onReady(() => {
-      setMpvReady(true)
-      setBuffering(false)
-      setPlaying(true)
-    })
-    mpvApi.onTime((time) => {
-      mpvTimeRef.current = time
-      setCurrentTime(time)
-    })
-    mpvApi.onDuration((dur) => {
-      mpvDurationRef.current = dur
-      setDuration(dur)
-    })
-    mpvApi.onPaused((paused) => {
-      setPlaying(!paused)
-      if (discordRPC) updateDiscordPresence(paused)
-    })
-    mpvApi.onEnded(() => {
-      onEnded()
-    })
-    mpvApi.onError((err) => {
-      setError(`mpv error: ${err}`)
-      setBuffering(false)
-    })
-
-    // Launch mpv
-    setBuffering(true)
-    mpvApi.launch({
-      hlsUrl: job.hlsUrl,
-      title: job.seriesName || job.title,
-      itemId: job.itemId,
-      playSessionId: job.playSessionId || '',
-      startPositionTicks,
-      audioTracks: job.audioTracks,
-      subtitleTracks: job.subtitleTracks,
-      episodeList,
-      currentEpisodeId,
-      job,
-    }).catch((err) => {
-      setError(`Failed to launch mpv: ${err}`)
-      setBuffering(false)
-    })
-
-    return () => {
-      mpvApi.quit().catch(() => {})
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job.itemId, isMpvMode])
-
-  // mpv Up Next detection — runs on every time update in mpv mode
-  useEffect(() => {
-    if (!isMpvMode || !nextEpisode || !autoplayNext || upNextDismissedRef.current) return
-    const durSecs = mpvDurationRef.current || (job.durationTicks ?? 0) / 10_000_000
-    if (durSecs <= 0) return
-    const remaining = durSecs - currentTime
-    if (remaining <= 120 && remaining > 0) {
-      if (!upNextVisible) setUpNextVisible(true)
-    } else if (upNextVisible) {
-      setUpNextVisible(false)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTime, isMpvMode])
-
-  // Initial load (built-in player only)
-  useEffect(() => {
-    if (isMpvMode) return
     const video = videoRef.current
 
     // Check upfront if we need an audio switch — if so, skip the initial loadSrc
@@ -420,24 +341,13 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
 
   useEffect(() => {
     heartbeatRef.current = setInterval(() => {
-      // Support both built-in player and mpv mode for progress reporting
-      let curTimeSecs: number
-      let durSecs: number
-      let isPaused: boolean
-
-      if (isMpvMode) {
-        curTimeSecs = mpvTimeRef.current
-        durSecs = mpvDurationRef.current || (job.durationTicks ?? 0) / 10_000_000
-        isPaused = !playing
-      } else {
-        const video = videoRef.current
-        if (!video) return
-        curTimeSecs = video.currentTime
-        durSecs = isFinite(video.duration) && video.duration > 0
-          ? video.duration
-          : (job.durationTicks ?? 0) / 10_000_000
-        isPaused = video.paused
-      }
+      const video = videoRef.current
+      if (!video) return
+      const curTimeSecs = video.currentTime
+      const durSecs = isFinite(video.duration) && video.duration > 0
+        ? video.duration
+        : (job.durationTicks ?? 0) / 10_000_000
+      const isPaused = video.paused
 
       if (!durSecs) return
       const posTicks = Math.floor(curTimeSecs * 10_000_000)
@@ -496,17 +406,11 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     let curTimeSecs = 0
     let durSecs = (job.durationTicks ?? 0) / 10_000_000
 
-    if (isMpvMode) {
-      curTimeSecs = mpvTimeRef.current
-      durSecs = mpvDurationRef.current || durSecs
-      window.electronAPI.mpv.quit().catch(() => {})
-    } else {
-      const video = videoRef.current
-      if (video) {
-        video.pause()
-        curTimeSecs = video.currentTime
-        durSecs = isFinite(video.duration) && video.duration > 0 ? video.duration : durSecs
-      }
+    const video = videoRef.current
+    if (video) {
+      video.pause()
+      curTimeSecs = video.currentTime
+      durSecs = isFinite(video.duration) && video.duration > 0 ? video.duration : durSecs
     }
 
     const posTicks = Math.floor(curTimeSecs * 10_000_000)
@@ -533,10 +437,10 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       }).catch(() => {})
     }
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
-    if (!isMpvMode) hlsRef.current?.destroy()
+    hlsRef.current?.destroy()
     if (discordRPC) window.electronAPI.discord.clearActivity().catch(() => {})
     onClose()
-  }, [job, onClose, isMpvMode])
+  }, [job, onClose])
 
   // Fire sleep action when countdown reaches 0
   useEffect(() => {
@@ -700,43 +604,24 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   // ─── Controls ───────────────────────────────────────────────────────────────
 
   function togglePlay() {
-    if (isMpvMode) {
-      window.electronAPI.mpv.togglePause().catch(() => {})
-      return
-    }
     const v = videoRef.current
     if (!v) return
     v.paused ? v.play() : v.pause()
   }
 
   function seek(delta: number) {
-    if (isMpvMode) {
-      window.electronAPI.mpv.seek(delta).catch(() => {})
-      return
-    }
     const v = videoRef.current
     if (!v) return
     v.currentTime = Math.max(0, Math.min(v.duration, v.currentTime + delta))
   }
 
   function seekTo(frac: number) {
-    if (isMpvMode) {
-      const targetSecs = frac * (mpvDurationRef.current || duration)
-      window.electronAPI.mpv.seekAbsolute(targetSecs).catch(() => {})
-      return
-    }
     const v = videoRef.current
     if (!v || !v.duration) return
     v.currentTime = frac * v.duration
   }
 
   function changeVolume(val: number) {
-    if (isMpvMode) {
-      window.electronAPI.mpv.setVolume(val * 100).catch(() => {})
-      setVolume(val)
-      setMuted(val === 0)
-      return
-    }
     const v = videoRef.current
     if (!v) return
     v.volume = val
@@ -745,12 +630,6 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   }
 
   function toggleMute() {
-    if (isMpvMode) {
-      const newMuted = !muted
-      setMuted(newMuted)
-      window.electronAPI.mpv.setVolume(newMuted ? 0 : volume * 100).catch(() => {})
-      return
-    }
     const v = videoRef.current
     if (!v) return
     v.muted = !v.muted
@@ -893,20 +772,14 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     try {
       const newJob = await api.startPlayJob({
         itemId: ep.jellyfinId,
-        directPlay: settingsDirectPlay || isMpvMode,
-        maxBitrate: (settingsDirectPlay || isMpvMode) ? undefined : QUALITY_BITRATES[defaultQuality],
+        directPlay: settingsDirectPlay,
+        maxBitrate: settingsDirectPlay ? undefined : QUALITY_BITRATES[defaultQuality],
         previousPlaySessionId: job.playSessionId || undefined,
         previousDeviceId: job.deviceId,
       })
       updateJob(newJob)
 
-      if (isMpvMode) {
-        // mpv: load new file directly
-        const url = newJob.directStreamUrl || newJob.hlsUrl
-        window.electronAPI.mpv.loadFile(url).catch(() => {})
-        setBuffering(false)
-        setPlaying(true)
-      } else if (newJob.directStreamUrl) {
+      if (newJob.directStreamUrl) {
         const video = videoRef.current
         if (video) {
           video.src = newJob.directStreamUrl
@@ -1401,34 +1274,19 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       onMouseMove={showControls}
       onClick={() => { if (!showSettings) togglePlay() }}
     >
-      {/* Video — built-in player or mpv placeholder */}
-      {isMpvMode ? (
-        <div className="flex-1 w-full flex flex-col items-center justify-center gap-4 select-none">
-          <Monitor size={48} className="text-white/20" />
-          <p className="text-white/40 text-sm">Playing in mpv</p>
-          <p className="text-white/20 text-xs">
-            {job.seriesName ? `${job.seriesName} — ` : ''}{job.title}
-          </p>
-          {playing && duration > 0 && (
-            <p className="text-white/30 text-xs tabular-nums">
-              {fmt(currentTime)} / {fmt(duration)}
-            </p>
-          )}
-        </div>
-      ) : (
-        <video
-          ref={videoRef}
-          className="flex-1 w-full object-contain"
-          onTimeUpdate={onTimeUpdate}
-          onDurationChange={onDurationChange}
-          onPlay={onPlay}
-          onPause={onPause}
-          onWaiting={onWaiting}
-          onPlaying={onPlaying}
-          onEnded={onEnded}
-          playsInline
-        />
-      )}
+      {/* Video element */}
+      <video
+        ref={videoRef}
+        className="flex-1 w-full object-contain"
+        onTimeUpdate={onTimeUpdate}
+        onDurationChange={onDurationChange}
+        onPlay={onPlay}
+        onPause={onPause}
+        onWaiting={onWaiting}
+        onPlaying={onPlaying}
+        onEnded={onEnded}
+        playsInline
+      />
 
       {/* Buffering spinner */}
       {buffering && !error && (

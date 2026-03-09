@@ -84,13 +84,13 @@ declare global {
         setAid: (aid: number) => Promise<void>
         setSid: (sid: number) => Promise<void>
         quit: () => Promise<void>
-        onJob: (cb: (payload: MpvLaunchPayload) => void) => void
         onReady: (cb: () => void) => void
         onTime: (cb: (time: number) => void) => void
         onDuration: (cb: (duration: number) => void) => void
         onPaused: (cb: (paused: boolean) => void) => void
         onEnded: (cb: () => void) => void
         onError: (cb: (err: string) => void) => void
+        removeAllListeners: () => void
       }
     }
   }
