@@ -53,6 +53,7 @@ function initDiscordRPC(): void {
 autoUpdater.autoDownload = true            // download in background automatically
 autoUpdater.autoInstallOnAppQuit = true   // install when app quits after download
 autoUpdater.logger = null                 // suppress default console output
+autoUpdater.allowElevation = false        // never use elevate.exe — prevents UAC prompts
 
 function setupAutoUpdater(): void {
   // Check 5 s after launch so the UI is ready before any banner appears
@@ -114,31 +115,15 @@ function createWindow(): void {
     }
   })
 
-  // ── Gamepad focus emulation ──────────────────────────────────────────────
-  // The Gamepad API in Chromium checks Page::IsPageVisible() at the C++ level.
-  // JS-level overrides of document.visibilityState don't affect this check.
-  // Use Chrome DevTools Protocol to emulate focus so gamepads stay active
-  // even when the OS window is not focused.
-  try {
-    mainWindow.webContents.debugger.attach('1.3')
-  } catch { /* already attached */ }
-  mainWindow.on('blur', () => {
-    try {
-      mainWindow?.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true })
-    } catch { /* ignore */ }
-  })
-  mainWindow.on('focus', () => {
-    try {
-      mainWindow?.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: false })
-    } catch { /* ignore */ }
-  })
-  // Also override JS-level visibility for any code that checks it directly
-  mainWindow.webContents.on('did-finish-load', () => {
-    mainWindow?.webContents.executeJavaScript(`
-      Object.defineProperty(document, 'visibilityState', { get: () => 'visible' });
-      Object.defineProperty(document, 'hidden', { get: () => false });
-      document.addEventListener('visibilitychange', (e) => e.stopImmediatePropagation(), true);
-    `)
+  // ── Gamepad: keep page "visible" when unfocused ─────────────────────────
+  // Chromium's Gamepad API checks Page::IsPageVisible() at the C++ level.
+  // JS overrides and CDP Emulation.setFocusEmulationEnabled do NOT affect
+  // this internal check. incrementCapturerCount() tells Chromium the page is
+  // being screen-captured, which forces the page to stay "visible" internally.
+  // This makes navigator.getGamepads() return data even when unfocused.
+  mainWindow.webContents.incrementCapturerCount()
+  mainWindow.on('closed', () => {
+    try { mainWindow?.webContents.decrementCapturerCount() } catch { /* window gone */ }
   })
 
   // Inject Origin/Referer for ALL outgoing requests from the renderer.

@@ -103,12 +103,27 @@
   animation-delay: 4s;
 }
 
+/* Gamepad heartbeat glow animation */
+@keyframes gp-heartbeat {
+  0%, 100% { box-shadow: 0 0 8px rgba(220, 38, 38, 0.5), inset 0 0 0 0 transparent; }
+  50%      { box-shadow: 0 0 18px rgba(220, 38, 38, 0.8), inset 0 0 0 0 transparent; }
+}
+
 /* Gamepad spatial-navigation focus ring */
 .gp-focused {
-  outline: 2px solid rgba(220, 38, 38, 0.85) !important;
+  outline: 4px solid rgba(220, 38, 38, 0.85) !important;
   outline-offset: 2px;
   border-radius: inherit;
-  box-shadow: 0 0 8px rgba(220, 38, 38, 0.4);
+  animation: gp-heartbeat 1.5s ease-in-out infinite;
+}
+
+/* Episode cards: red highlight on gamepad hover */
+.gp-focused[data-focusable] .ep-num-box {
+  background: rgba(153, 27, 27, 0.5) !important;
+}
+.gp-focused[data-focusable] .ep-num-text {
+  color: rgba(252, 165, 165, 1) !important;
+  opacity: 1 !important;
 }
 
 /* Spinning ring (login dot) */

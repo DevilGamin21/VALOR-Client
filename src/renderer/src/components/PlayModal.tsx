@@ -850,8 +850,8 @@ export default function PlayModal({ item, onClose }: Props) {
                               }`}
                             >
                               {/* Episode number + play icon overlay */}
-                              <div className="flex-shrink-0 w-10 h-10 rounded-md bg-white/[0.06] flex items-center justify-center relative">
-                                <span className={`text-sm font-bold tabular-nums transition ${
+                              <div className="ep-num-box flex-shrink-0 w-10 h-10 rounded-md bg-white/[0.06] flex items-center justify-center relative transition">
+                                <span className={`ep-num-text text-sm font-bold tabular-nums transition ${
                                   isPlayable ? 'text-white/40 group-hover:opacity-0' : 'text-white/20'
                                 }`}>
                                   {ep.episodeNumber}
