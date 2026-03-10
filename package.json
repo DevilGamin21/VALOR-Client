@@ -1,6 +1,6 @@
 {
   "name": "valor-client",
-  "version": "0.1.77",
+  "version": "0.1.78",
   "description": "VALOR Desktop Client",
   "main": "out/main/index.js",
   "scripts": {
