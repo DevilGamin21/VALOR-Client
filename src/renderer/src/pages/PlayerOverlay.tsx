@@ -522,7 +522,7 @@ export default function PlayerOverlay() {
       largeImageKey: job.posterUrl || undefined,
       largeImageText: job.posterUrl ? (job.seriesName || job.title) : undefined,
       instance: false,
-      buttons: [{ label: 'Get VALOR', url: 'https://github.com/DevilGamin21/VALOR-Client/releases/latest/download/VALOR-Setup.exe' }],
+      buttons: [{ label: 'Get VALOR', url: 'https://valor.dawn-star.co.uk/downloads/' }],
     }).catch(() => {})
   }, [paused, job, time, discordRPC, episodeList, localEpId])
 

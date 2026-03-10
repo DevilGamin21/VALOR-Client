@@ -14,13 +14,6 @@ files:
 extraResources:
   - from: icon/logo.png
     to: icon.png
-  # mpv player — place resources/mpv/ contents from shinchiro nightly builds.
-  # Bundles mpv.exe + required DLLs for production packaging.
-  - from: resources/mpv
-    to: mpv
-    filter:
-      - "*.exe"
-      - "*.dll"
 
 # ── Auto-update publish target ─────────────────────────────────────────────────
 # Publishes to GitHub Releases. Run `npm run release:win` to build + upload.
@@ -33,6 +26,14 @@ publish:
 
 # ── Windows ───────────────────────────────────────────────────────────────────
 win:
+  # mpv player — bundled from resources/mpv/ (shinchiro nightly builds).
+  # Windows-only: Linux uses system-installed mpv from PATH.
+  extraResources:
+    - from: resources/mpv
+      to: mpv
+      filter:
+        - "*.exe"
+        - "*.dll"
   target:
     - target: nsis
       arch: [x64]
@@ -88,3 +89,4 @@ linux:
   icon: icon/logo.png
   category: AudioVideo
   maintainer: dawn-star.co.uk
+  artifactName: VALOR-${version}-${arch}.${ext}
