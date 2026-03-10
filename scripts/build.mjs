@@ -208,8 +208,8 @@ if (release) {
     ok(`Update feed    → latest.yml (attached to release)`)
   }
   if (isLinux) {
-    ok(`AppImage       → VALOR-${v}-x86_64.AppImage (attached to release)`)
-    ok(`Deb package    → VALOR-${v}-amd64.deb (attached to release)`)
+    ok(`AppImage       → VALOR-Setup.AppImage (attached to release)`)
+    ok(`Deb package    → VALOR-Setup.deb (attached to release)`)
     ok(`Update feed    → latest-linux.yml (attached to release)`)
   }
 }
@@ -224,8 +224,8 @@ if (isWin) {
   print(`${DIM}  Artifact : dist/VALOR-Setup.exe${RST}`)
 }
 if (isLinux) {
-  print(`${DIM}  Artifacts: dist/VALOR-${finalVersion}-x86_64.AppImage${RST}`)
-  print(`${DIM}             dist/VALOR-${finalVersion}-amd64.deb${RST}`)
+  print(`${DIM}  Artifacts: dist/VALOR-Setup.AppImage${RST}`)
+  print(`${DIM}             dist/VALOR-Setup.deb${RST}`)
 }
 if (!release) {
   print('')
