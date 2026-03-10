@@ -91,4 +91,3 @@ linux:
   maintainer: dawn-star.co.uk
   # Fixed artifact name so GitHub "latest" download URL stays stable (like Windows)
   artifactName: VALOR-Setup.${ext}
-  artifactName: VALOR-${version}-${arch}.${ext}
