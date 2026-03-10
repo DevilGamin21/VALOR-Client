@@ -370,6 +370,11 @@ ipcMain.handle('mpv:quit',          ()         => { mpvInstance?.quit(); mpvInst
 // inside HLS.js's MANIFEST_PARSED callback after an API round-trip).
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
+// Force sRGB color profile so video colors match browser playback.
+// Without this, Chromium may use the OS/monitor color profile for video decode,
+// producing washed-out or oversaturated colors compared to Chrome/Firefox.
+app.commandLine.appendSwitch('force-color-profile', 'srgb')
+
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {

@@ -532,13 +532,13 @@ function LibraryRow({
           {isTV ? (
             <button onClick={() => setExpanded((v) => !v)} className="flex items-center gap-1.5 text-white/90 font-medium">
               {expanded ? <ChevronDown className="w-3.5 h-3.5 text-white/40" /> : <ChevronRight className="w-3.5 h-3.5 text-white/40" />}
-              <span className="truncate max-w-[200px]">{item.title}</span>
+              <span className="truncate max-w-[40vw]">{item.title}</span>
               {item.year && <span className="text-white/30 text-xs">({item.year})</span>}
             </button>
           ) : (
             <div className="flex items-center gap-1.5 text-white/90 font-medium">
               <span className="w-3.5" />
-              <span className="truncate max-w-[200px]">{item.title}</span>
+              <span className="truncate max-w-[40vw]">{item.title}</span>
               {item.year && <span className="text-white/30 text-xs">({item.year})</span>}
             </div>
           )}
@@ -773,7 +773,7 @@ export default function Pruna() {
   })
 
   return (
-    <div className="p-6 pb-8 max-w-5xl">
+    <div className="p-6 pb-8 max-w-[90rem] w-full">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3 mb-6">
         <div className="flex items-center gap-3">
@@ -814,7 +814,7 @@ export default function Pruna() {
         {data && Object.keys(data.stateCounts).length > 0 && (
           <div>
             <p className="text-[11px] text-white/30 uppercase tracking-wider mb-2">Pipeline Status</p>
-            <div className="grid grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-3 lg:grid-cols-5 xl:grid-cols-7 gap-3">
               {Object.entries(data.stateCounts)
                 .sort(([, a], [, b]) => (b as number) - (a as number))
                 .map(([state, count]) => (
@@ -866,7 +866,7 @@ export default function Pruna() {
                     {queueData.queued.map((item, i) => (
                       <tr key={`q-${item.id}`} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                         <td className="py-2.5 pr-3 text-xs text-blue-400 font-semibold tabular-nums">{i + 1}</td>
-                        <td className="py-2.5 pr-3 text-white/90 font-medium truncate max-w-[200px]">{item.title}</td>
+                        <td className="py-2.5 pr-3 text-white/90 font-medium truncate max-w-[40vw]">{item.title}</td>
                         <td className="py-2.5 pr-3"><TypeBadge type={item.type} /></td>
                         <td className="py-2.5 pr-3 text-xs text-white/40 whitespace-nowrap">{timeAgo(item.createdAt)}</td>
                         <td className="py-2.5 text-right whitespace-nowrap">
@@ -1041,9 +1041,9 @@ export default function Pruna() {
                 <tbody>
                   {failedItems.map((item) => (
                     <tr key={`f-${item.id}`} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                      <td className="py-2.5 pr-3 text-white/90 font-medium truncate max-w-[200px]">{item.title}</td>
+                      <td className="py-2.5 pr-3 text-white/90 font-medium truncate max-w-[40vw]">{item.title}</td>
                       <td className="py-2.5 pr-3"><TypeBadge type={item.type} /></td>
-                      <td className="py-2.5 pr-3 text-xs text-red-400/80 max-w-[250px] truncate" title={item.error || ''}>{item.error || '\u2014'}</td>
+                      <td className="py-2.5 pr-3 text-xs text-red-400/80 max-w-[30vw] truncate" title={item.error || ''}>{item.error || '\u2014'}</td>
                       <td className="py-2.5 pr-3 text-xs text-white/40 whitespace-nowrap">{timeAgo(item.stateUpdatedAt)}</td>
                       <td className="py-2.5 text-right whitespace-nowrap">
                         <div className="inline-flex gap-1.5">
