@@ -773,7 +773,7 @@ export default function Pruna() {
   })
 
   return (
-    <div className="p-6 pb-8 max-w-[90rem] w-full">
+    <div className="p-6 pb-8 max-w-[90rem] w-full mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3 mb-6">
         <div className="flex items-center gap-3">
@@ -1013,6 +1013,42 @@ export default function Pruna() {
             </div>
           )}
         </div>
+
+        {/* Completed Items */}
+        {completedItems.length > 0 && (
+          <div className="bg-dark-card border border-emerald-500/20 rounded-lg p-4">
+            <SectionHeader title="Completed" count={completedItems.length} />
+            <div className="overflow-x-auto max-h-80 overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-dark-card z-10">
+                  <tr className="text-[10px] uppercase tracking-wider text-white/30 border-b border-white/10">
+                    <th className="text-left py-2 pr-3 font-medium">Title</th>
+                    <th className="text-left py-2 pr-3 font-medium">Type</th>
+                    <th className="text-left py-2 pr-3 font-medium">Quality</th>
+                    <th className="text-left py-2 pr-3 font-medium">Completed</th>
+                    <th className="text-right py-2 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {completedItems.map((item) => (
+                    <tr key={`c-${item.id}`} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                      <td className="py-2.5 pr-3 text-white/90 font-medium truncate max-w-[40vw]">{item.title}</td>
+                      <td className="py-2.5 pr-3"><TypeBadge type={item.type} /></td>
+                      <td className="py-2.5 pr-3 text-xs text-white/50">{item.torrent?.quality || '\u2014'}</td>
+                      <td className="py-2.5 pr-3 text-xs text-white/40 whitespace-nowrap">{timeAgo(item.stateUpdatedAt)}</td>
+                      <td className="py-2.5 text-right whitespace-nowrap">
+                        <button onClick={() => handleRemove(item.id, item.title)} disabled={actionLoading === item.id}
+                          className="p-1.5 rounded border border-white/15 text-white/50 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30 disabled:opacity-40 transition-colors" title="Remove">
+                          {actionLoading === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Failed Items */}
         {failedItems.length > 0 && (

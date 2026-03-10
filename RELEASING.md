@@ -6,49 +6,29 @@
 - GitHub Personal Access Token (fine-grained) with **Contents: Read and write** on `DevilGamin21/VALOR-Client`
   - Generate at: GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens
   - Set expiration to 90 days or longer
+- `GH_TOKEN` environment variable set to your token
 
-## Release Methods
+## Release Method (Local)
 
-### Method 1: CI (Recommended)
-
-Push a version tag and GitHub Actions builds **both Windows + Linux** automatically.
-
-```bash
-# 1. Bump version locally
-npm version patch                      # or minor / major
-git push origin main --tags
-
-# 2. Done — CI handles everything:
-#    - Builds Windows (NSIS installer) + Linux (AppImage + .deb)
-#    - Creates GitHub Release
-#    - Uploads all artifacts to the release
-```
-
-Monitor progress at: `https://github.com/DevilGamin21/VALOR-Client/actions`
-
-You can also trigger a build manually from the Actions tab → "Release" → "Run workflow".
-
-### Method 2: Local Release (Single Platform)
-
-Build and upload from your machine. Run for each platform you want to publish.
+Build and upload from your machine. This is the standard release flow.
 
 ```bash
 export GH_TOKEN="gho_your_token_here"
 
-# Windows
+# Windows (primary)
 npm run release:win
 
-# Linux (can cross-compile from Windows)
+# Linux (optional — can cross-compile from Windows)
 npm run release:linux
 ```
 
 Each command: patch bump → compile → package → upload to GitHub Releases.
 
-Both upload to the **same release** — electron-builder detects the existing release by tag and adds artifacts to it.
+Both upload to the **same release** — electron-builder detects the existing release by tag and adds artifacts to it. Run `release:win` first, then `release:linux` if you want cross-platform.
 
-### Method 3: Local Build + Manual Upload
+### Build Without Upload
 
-Use when automated upload fails or you need more control.
+Use when you want to test the build locally or upload manually later.
 
 ```bash
 # Build locally (no upload)
@@ -71,11 +51,11 @@ A complete cross-platform release has these assets in the GitHub Release:
 | File | Platform | Purpose |
 |------|----------|---------|
 | `latest.yml` | Windows | electron-updater version manifest |
-| `VALOR-Setup.exe` | Windows | NSIS installer (~120 MB) |
+| `VALOR-Setup.exe` | Windows | NSIS installer (~90 MB) |
 | `VALOR-Setup.exe.blockmap` | Windows | Delta-update metadata |
 | `latest-linux.yml` | Linux | electron-updater version manifest |
-| `VALOR-{version}-x86_64.AppImage` | Linux | Portable Linux app |
-| `VALOR-{version}-amd64.deb` | Linux | Debian/Ubuntu package |
+| `VALOR-Setup.AppImage` | Linux | Portable Linux app |
+| `VALOR-Setup.deb` | Linux | Debian/Ubuntu package |
 
 Windows auto-update requires: `latest.yml` + `VALOR-Setup.exe` + blockmap.
 Linux AppImage auto-update requires: `latest-linux.yml` + AppImage.
@@ -91,7 +71,7 @@ If you need to upload assets manually after creating a local build:
 
 ```bash
 git add package.json package-lock.json
-git commit -m "v0.1.78"
+git commit -m "v0.1.82"
 git push origin main
 ```
 
@@ -99,7 +79,7 @@ git push origin main
 
 ```bash
 TOKEN="gho_your_token_here"
-VERSION="0.1.78"  # match package.json version
+VERSION="0.1.82"  # match package.json version
 
 curl -s -L -X POST \
   -H "Authorization: Bearer $TOKEN" \
@@ -141,9 +121,22 @@ curl -s -L --post301 --location-trusted -X POST \
 
 curl -s -L --post301 --location-trusted -X POST \
   -u "DevilGamin21:$TOKEN" -H "Content-Type: application/octet-stream" \
-  "https://uploads.github.com/repos/DevilGamin21/VALOR-Client/releases/$RELEASE_ID/assets?name=VALOR-${VERSION}-x86_64.AppImage" \
-  --data-binary "@dist/VALOR-${VERSION}-x86_64.AppImage"
+  "https://uploads.github.com/repos/DevilGamin21/VALOR-Client/releases/$RELEASE_ID/assets?name=VALOR-Setup.AppImage" \
+  --data-binary "@dist/VALOR-Setup.AppImage"
 ```
+
+---
+
+## CI (Alternative)
+
+A GitHub Actions workflow exists that builds both Windows + Linux automatically when a `v*` tag is pushed. This is available as a fallback but **local release is preferred** since it's faster and more reliable.
+
+```bash
+npm version patch
+git push origin main --tags
+```
+
+Monitor at: `https://github.com/DevilGamin21/VALOR-Client/actions`
 
 ---
 
