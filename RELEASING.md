@@ -12,6 +12,18 @@
 
 Build and upload from your machine. This is the standard release flow.
 
+### 1. Commit and push your changes
+
+Stage only the files you changed — avoid `git add .` which can pick up unintended files.
+
+```bash
+git add src/renderer/src/components/PlayModal.tsx src/renderer/src/pages/Home.tsx  # etc.
+git commit -m "Fix avatar sync, Discord RPC poster for movies"
+git push origin main
+```
+
+### 2. Build + upload
+
 ```bash
 export GH_TOKEN="gho_your_token_here"
 
@@ -24,7 +36,17 @@ npm run release:linux
 
 Each command: patch bump → compile → package → upload to GitHub Releases.
 
-Both upload to the **same release** — electron-builder detects the existing release by tag and adds artifacts to it. Run `release:win` first, then `release:linux` if you want cross-platform.
+The release script auto-bumps the patch version in `package.json` and `package-lock.json`, commits the bump, tags it (e.g. `v0.1.84`), builds, and uploads. You do **not** need to bump the version manually.
+
+### 3. Push the version bump
+
+After the release script finishes, it will have created a local commit with the version bump. Push it:
+
+```bash
+git push origin main --tags
+```
+
+Both platforms upload to the **same release** — electron-builder detects the existing release by tag and adds artifacts to it. Run `release:win` first, then `release:linux` if you want cross-platform.
 
 ### Build Without Upload
 
@@ -56,10 +78,13 @@ A complete cross-platform release has these assets in the GitHub Release:
 | `latest-linux.yml` | Linux | electron-updater version manifest |
 | `VALOR-Setup.AppImage` | Linux | Portable Linux app |
 | `VALOR-Setup.deb` | Linux | Debian/Ubuntu package |
+| `VALOR-Mobile.apk` | Android | Phone/tablet sideload APK |
+| `VALOR-TV.apk` | Android TV | Google TV / Android TV sideload APK |
 
 Windows auto-update requires: `latest.yml` + `VALOR-Setup.exe` + blockmap.
 Linux AppImage auto-update requires: `latest-linux.yml` + AppImage.
 The `.deb` does not auto-update (users download manually or use apt).
+Android APKs auto-update in-app — the app checks the GitHub Release for a newer version and prompts download.
 
 ---
 
@@ -123,6 +148,39 @@ curl -s -L --post301 --location-trusted -X POST \
   -u "DevilGamin21:$TOKEN" -H "Content-Type: application/octet-stream" \
   "https://uploads.github.com/repos/DevilGamin21/VALOR-Client/releases/$RELEASE_ID/assets?name=VALOR-Setup.AppImage" \
   --data-binary "@dist/VALOR-Setup.AppImage"
+```
+
+### Android assets
+
+Build from the VALOR-TV (VALOR-Android) project:
+
+```bash
+cd c:\VALOR-TV
+
+# Bump versionCode and versionName in app/build.gradle.kts first, then:
+./gradlew assembleMobileRelease assembleTvRelease
+
+# Copy APKs with release names
+cp app/build/outputs/apk/mobile/release/app-mobile-release.apk VALOR-Mobile.apk
+cp app/build/outputs/apk/tv/release/app-tv-release.apk VALOR-TV.apk
+
+# Upload to the same GitHub Release
+curl -s -L --post301 --location-trusted -X POST \
+  -u "DevilGamin21:$TOKEN" -H "Content-Type: application/vnd.android.package-archive" \
+  "https://uploads.github.com/repos/DevilGamin21/VALOR-Client/releases/$RELEASE_ID/assets?name=VALOR-Mobile.apk" \
+  --data-binary @VALOR-Mobile.apk
+
+curl -s -L --post301 --location-trusted -X POST \
+  -u "DevilGamin21:$TOKEN" -H "Content-Type: application/vnd.android.package-archive" \
+  "https://uploads.github.com/repos/DevilGamin21/VALOR-Client/releases/$RELEASE_ID/assets?name=VALOR-TV.apk" \
+  --data-binary @VALOR-TV.apk
+```
+
+For debug testing (no signing config needed):
+```bash
+./gradlew assembleMobileDebug assembleTvDebug
+# APKs at: app/build/outputs/apk/mobile/debug/app-mobile-debug.apk
+#          app/build/outputs/apk/tv/debug/app-tv-debug.apk
 ```
 
 ---
