@@ -768,6 +768,8 @@ export default function PlayerOverlay() {
     markedPlayedRef.current = false
     setShowEpisodePanel(false)
     setBuffering(true)
+    setTime(0)
+    setDuration(0)
     setLocalEpId(ep.jellyfinId)
     setVttCues([])
     setActiveCue(null)

@@ -785,13 +785,14 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         const video = videoRef.current
         if (video) {
           video.src = newJob.directStreamUrl
+          video.currentTime = 0
           video.muted = false
           video.volume = video.volume > 0 ? video.volume : 1
           video.play().catch(() => {})
         }
         setBuffering(false)
       } else {
-        loadSrc(newJob.hlsUrl)
+        loadSrc(newJob.hlsUrl, 0)
       }
     } catch {
       setError('Failed to load episode')
