@@ -64,7 +64,7 @@ function TierBadge({ user }: { user: User }) {
 }
 
 export default function Profile() {
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
   const [email, setEmail] = useState(user?.email ?? '')
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl ?? '')
   const [saving, setSaving] = useState(false)
@@ -99,6 +99,7 @@ export default function Profile() {
     try {
       const res = await api.uploadAvatar(file)
       setAvatarUrl(res.avatarUrl)
+      await refreshUser()
       setMessage('Avatar updated.')
     } catch (e) {
       setMessage((e as Error).message)

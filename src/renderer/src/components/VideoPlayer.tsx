@@ -509,8 +509,10 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       state,
       startTimestamp,
       endTimestamp,
-      largeImageKey: job.posterUrl || undefined,
-      largeImageText: job.posterUrl ? (job.seriesName || job.title) : undefined,
+      largeImageKey: job.posterUrl || 'logo',
+      largeImageText: job.seriesName || job.title,
+      smallImageKey: job.posterUrl ? 'logo' : undefined,
+      smallImageText: job.posterUrl ? 'VALOR' : undefined,
       instance: false,
       buttons: [{ label: 'Get VALOR', url: 'https://valor.dawn-star.co.uk/downloads/' }],
     }).catch(() => {})

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import {
@@ -43,7 +43,11 @@ export default function RootShell() {
   const [search, setSearch] = useState('')
   const [hasUpdate, setHasUpdate] = useState(false)
   const [updateReady, setUpdateReady] = useState(false)
+  const [avatarError, setAvatarError] = useState(false)
   const mainRef = useRef<HTMLDivElement>(null)
+
+  // Reset avatar error when URL changes (e.g. after upload)
+  useEffect(() => { setAvatarError(false) }, [user?.avatarUrl])
 
   // Listen for update-downloaded so the sidebar icon can trigger install directly
   useEffect(() => {
@@ -87,11 +91,12 @@ export default function RootShell() {
                 `${iconBase} ${isActive ? iconActive : iconInactive}`
               }
             >
-              {user?.avatarUrl ? (
+              {user?.avatarUrl && !avatarError ? (
                 <img
                   src={user.avatarUrl}
                   alt="avatar"
                   className="w-7 h-7 rounded-full object-cover"
+                  onError={() => setAvatarError(true)}
                 />
               ) : (
                 <div className="w-7 h-7 rounded-full bg-white/80 text-black flex items-center justify-center text-[10px] font-bold">

@@ -179,7 +179,15 @@ export default function Home() {
         maxBitrate: directPlay ? undefined : QUALITY_BITRATES[defaultQuality],
         startTimeTicks: ticks > 0 ? ticks : undefined,
       })
-      job.posterUrl = resumeItem.posterUrl?.startsWith('https://image.tmdb.org') ? resumeItem.posterUrl : null
+      // Prefer existing TMDB poster; otherwise look one up for Discord RPC
+      let poster = resumeItem.posterUrl?.startsWith('https://image.tmdb.org') ? resumeItem.posterUrl : null
+      if (!poster) {
+        try {
+          const lookup = await api.lookupJellyfinItem(String(resumeItem.resumeMediaId || resumeItem.id))
+          if (lookup.posterUrl) poster = lookup.posterUrl
+        } catch { /* best-effort */ }
+      }
+      job.posterUrl = poster
       job.seriesId = resumeItem.seriesId || undefined
       job.tmdbId = resumeItem.tmdbId
       openPlayer(job, ticks)

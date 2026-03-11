@@ -75,14 +75,18 @@ export default function PlayModal({ item, onClose }: Props) {
     if (item.positionTicks && item.positionTicks > 0) {
       setResumeTicks(item.positionTicks)
       setShowResume(true)
-      return
+    } else {
+      // Otherwise check Jellyfin for saved progress
+      api.getItemProgress(String(item.id)).then((progress) => {
+        if (progress && progress.percent >= 5 && progress.percent < 90) {
+          setResumeTicks(progress.positionTicks)
+          setShowResume(true)
+        }
+      }).catch(() => {})
     }
-    // Otherwise check Jellyfin for saved progress
-    api.getItemProgress(String(item.id)).then((progress) => {
-      if (progress && progress.percent >= 5 && progress.percent < 90) {
-        setResumeTicks(progress.positionTicks)
-        setShowResume(true)
-      }
+    // Fetch TMDB poster for Discord Rich Presence (movies need this too)
+    api.lookupJellyfinItem(String(item.id)).then((lookup) => {
+      if (lookup.posterUrl) setTmdbPosterUrl(lookup.posterUrl)
     }).catch(() => {})
   }, [item])
 

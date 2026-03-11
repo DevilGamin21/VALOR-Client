@@ -519,8 +519,10 @@ export default function PlayerOverlay() {
       state,
       startTimestamp: !paused && !durSecs ? nowSec - Math.floor(curTime) : undefined,
       endTimestamp: !paused && durSecs > 0 ? nowSec + Math.max(0, Math.floor(durSecs - curTime)) : undefined,
-      largeImageKey: job.posterUrl || undefined,
-      largeImageText: job.posterUrl ? (job.seriesName || job.title) : undefined,
+      largeImageKey: job.posterUrl || 'logo',
+      largeImageText: job.seriesName || job.title,
+      smallImageKey: job.posterUrl ? 'logo' : undefined,
+      smallImageText: job.posterUrl ? 'VALOR' : undefined,
       instance: false,
       buttons: [{ label: 'Get VALOR', url: 'https://valor.dawn-star.co.uk/downloads/' }],
     }).catch(() => {})
