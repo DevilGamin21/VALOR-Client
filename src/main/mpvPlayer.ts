@@ -39,8 +39,6 @@ export function isMpvAvailable(): boolean {
 export interface MpvLaunchOptions {
   startSecs?: number
   title?: string
-  /** Native window handle (HWND on Windows, XID on X11) to embed mpv into */
-  wid?: string
 }
 
 type MpvEventHandlers = {
@@ -93,15 +91,10 @@ export class MpvPlayer {
       ipcFlag,
     ]
 
-    if (opts.wid) {
-      // Embed mpv into the target window — no separate mpv window
-      args.push(`--wid=${opts.wid}`)
-      // Prevent mpv from capturing keyboard/mouse — Electron handles all input
-      args.push('--no-input-default-bindings', '--input-vo-keyboard=no', '--cursor-autohide=no')
-    } else {
-      // Standalone mpv window (fallback)
-      args.push('--force-window=yes', '--window-maximized=yes')
-    }
+    // Standalone borderless fullscreen window — overlay sits on top with controls
+    args.push('--force-window=yes', '--window-maximized=yes', '--no-border')
+    // Prevent mpv from capturing keyboard — Electron overlay handles all input
+    args.push('--no-input-default-bindings', '--input-vo-keyboard=no')
 
     if (opts.title) args.push(`--title=${opts.title}`)
     if (opts.startSecs && opts.startSecs > 0) args.push(`--start=${opts.startSecs}`)
