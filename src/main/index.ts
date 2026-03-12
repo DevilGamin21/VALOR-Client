@@ -54,12 +54,12 @@ function initDiscordRPC(): void {
 }
 
 // ─── Auto-updater setup ───────────────────────────────────────────────────────
-autoUpdater.autoDownload = true            // download in background automatically
-autoUpdater.autoInstallOnAppQuit = true   // install when app quits after download
-autoUpdater.logger = null                 // suppress default console output
-autoUpdater.allowElevation = false        // never use elevate.exe — prevents UAC prompts
-
 function setupAutoUpdater(): void {
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.logger = null
+  autoUpdater.allowElevation = false
+
   // Check 5 s after launch so the UI is ready before any banner appears
   setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000)
 
@@ -229,6 +229,18 @@ ipcMain.handle('update:check', () => autoUpdater.checkForUpdates().catch(() => {
 
 // ─── Overlay window for mpv ──────────────────────────────────────────────────
 
+function getMainWindowWid(): string | undefined {
+  if (!mainWindow) return undefined
+  const buf = mainWindow.getNativeWindowHandle()
+  // Windows: HWND is pointer-sized (4 or 8 bytes). Linux X11: XID is 4 bytes.
+  if (process.platform === 'win32') {
+    const hwnd = buf.length >= 8 ? Number(buf.readBigUInt64LE()) : buf.readUInt32LE()
+    return String(hwnd)
+  }
+  // Linux X11
+  return String(buf.readUInt32LE())
+}
+
 function createOverlayWindow(): void {
   if (overlayWindow) { overlayWindow.close(); overlayWindow = null }
 
@@ -241,6 +253,8 @@ function createOverlayWindow(): void {
     skipTaskbar: true,
     hasShadow: false,
     backgroundColor: '#00000000',
+    // Owned by main window — moves with it, no extra taskbar entry
+    parent: mainWindow ?? undefined,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -336,10 +350,15 @@ ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
   // Create overlay window before launching mpv so it's ready when mpv opens
   createOverlayWindow()
 
+  // Get main window HWND to embed mpv directly into it (no separate mpv window)
+  const wid = getMainWindowWid()
+  console.log('[mpv:launch] wid:', wid ?? '(standalone)')
+
   try {
     await mpvInstance.launch(url, {
       startSecs: p.startPositionTicks > 0 ? p.startPositionTicks / 10_000_000 : undefined,
       title: p.title,
+      wid,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -374,7 +393,6 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 // Without this, Chromium may use the OS/monitor color profile for video decode,
 // producing washed-out or oversaturated colors compared to Chrome/Firefox.
 app.commandLine.appendSwitch('force-color-profile', 'srgb')
-
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
