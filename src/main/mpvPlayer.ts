@@ -48,6 +48,8 @@ type MpvEventHandlers = {
   ended?: () => void
   error?: (err: string) => void
   ready?: () => void
+  /** Fires when mpv window gains/loses OS focus (for overlay z-order management) */
+  focused?: (hasFocus: boolean) => void
 }
 
 // ─── MpvPlayer ────────────────────────────────────────────────────────────────
@@ -84,7 +86,13 @@ export class MpvPlayer {
       url,
       '--no-terminal',
       '--keepaspect=yes',
-      '--hwdec=auto',
+      // Force D3D11 hardware decode on Windows — 'auto' can silently fall back to CPU
+      ...(process.platform === 'win32'
+        ? ['--hwdec=d3d11va', '--gpu-api=d3d11']
+        : ['--hwdec=auto']),
+      // Smooth frame timing: resample to display refresh + interpolate between frames
+      '--video-sync=display-resample',
+      '--interpolation',
       // Disable built-in OSC — VALOR's overlay provides controls
       '--no-osc',
       '--osd-font-size=32',
@@ -195,6 +203,8 @@ export class MpvPlayer {
         this.handlers.paused?.(data)
       } else if (name === 'eof-reached' && data === true) {
         this.handlers.ended?.()
+      } else if (name === 'focused' && typeof data === 'boolean') {
+        this.handlers.focused?.(data)
       }
     }
   }
@@ -204,6 +214,7 @@ export class MpvPlayer {
     this.send(['observe_property', 2, 'duration'])
     this.send(['observe_property', 3, 'pause'])
     this.send(['observe_property', 4, 'eof-reached'])
+    this.send(['observe_property', 5, 'focused'])
   }
 
   // ─── Command helpers ─────────────────────────────────────────────────────────

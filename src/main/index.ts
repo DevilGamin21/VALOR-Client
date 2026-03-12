@@ -237,6 +237,8 @@ function createOverlayWindow(): void {
     height: 1080,
     transparent: true,
     frame: false,
+    // Start alwaysOnTop so overlay is above mpv. Z-order is managed dynamically
+    // via mpv's 'focused' property — when user Alt-Tabs away, we lower it.
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
@@ -270,6 +272,16 @@ function createOverlayWindow(): void {
   })
 
   overlayWindow.on('closed', () => { overlayWindow = null })
+}
+
+/** Called by mpv 'focused' event — raises/lowers overlay to match mpv's focus state */
+function setOverlayOnTop(onTop: boolean): void {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return
+  if (onTop) {
+    overlayWindow.setAlwaysOnTop(true, 'pop-up-menu')
+  } else {
+    overlayWindow.setAlwaysOnTop(false)
+  }
 }
 
 function closeOverlayWindow(): void {
@@ -332,6 +344,8 @@ ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
     },
     error:      (err)  => broadcast('mpv:error', err),
     ready:      ()     => broadcast('mpv:ready'),
+    // Raise/lower overlay when mpv gains/loses OS window focus
+    focused:    (hasFocus) => setOverlayOnTop(hasFocus),
   })
 
   // Hide main window so mpv + overlay are the only visible windows
