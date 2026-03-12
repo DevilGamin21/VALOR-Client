@@ -39,6 +39,8 @@ export function isMpvAvailable(): boolean {
 export interface MpvLaunchOptions {
   startSecs?: number
   title?: string
+  /** Window handle to embed mpv into (--wid). If omitted, mpv opens its own window. */
+  wid?: string
 }
 
 type MpvEventHandlers = {
@@ -88,7 +90,7 @@ export class MpvPlayer {
       '--keepaspect=yes',
       // Force D3D11 hardware decode on Windows — 'auto' can silently fall back to CPU
       ...(process.platform === 'win32'
-        ? ['--hwdec=d3d11va', '--gpu-api=d3d11']
+        ? ['--hwdec=d3d11va']
         : ['--hwdec=auto']),
       // Smooth frame timing: resample to display refresh + interpolate between frames
       '--video-sync=display-resample',
@@ -99,8 +101,15 @@ export class MpvPlayer {
       ipcFlag,
     ]
 
-    // Standalone borderless fullscreen window — overlay sits on top with controls
-    args.push('--force-window=yes', '--window-maximized=yes', '--no-border')
+    if (opts.wid) {
+      // Embed mpv as a child window inside the given HWND.
+      // Use --vo=direct3d (D3D9) so mpv's renderer doesn't conflict with
+      // Chromium's D3D11 compositor — this prevents the invisible-video bug.
+      args.push(`--wid=${opts.wid}`, '--vo=direct3d')
+    } else {
+      // Standalone borderless fullscreen window — overlay sits on top with controls
+      args.push('--force-window=yes', '--window-maximized=yes', '--no-border')
+    }
     // Prevent mpv from capturing keyboard — Electron overlay handles all input
     args.push('--no-input-default-bindings', '--input-vo-keyboard=no')
 

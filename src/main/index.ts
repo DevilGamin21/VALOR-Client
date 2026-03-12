@@ -10,7 +10,8 @@ const store = new Store<{ token: string }>()
 const API_ORIGIN = 'https://valor.dawn-star.co.uk'
 
 let mainWindow: BrowserWindow | null = null
-let overlayWindow: BrowserWindow | null = null
+let playerWindow: BrowserWindow | null = null  // Black host window for embedded mpv
+let overlayWindow: BrowserWindow | null = null  // Transparent controls overlay (child of playerWindow)
 let mpvInstance: MpvPlayer | null = null
 let mpvPayload: unknown = null
 
@@ -227,19 +228,44 @@ ipcMain.handle('update:download', () => autoUpdater.downloadUpdate())
 ipcMain.handle('update:install', () => autoUpdater.quitAndInstall(true, true))
 ipcMain.handle('update:check', () => autoUpdater.checkForUpdates().catch(() => {}))
 
-// ─── Overlay window for mpv ──────────────────────────────────────────────────
+// ─── Player window system for mpv ───────────────────────────────────────────
+// Architecture:
+//   playerWindow  — black, non-transparent, full-screen. mpv embeds into it via --wid.
+//   overlayWindow — transparent child of playerWindow. Renders UI controls on top of video.
+// This gives us: overlay UI → mpv video → black background.
+// No separate floating window, no desktop bleed-through, no alwaysOnTop conflicts.
 
-function createOverlayWindow(): void {
+/** Get the native window handle as a decimal string for mpv --wid */
+function getWindowWid(win: BrowserWindow): string {
+  const buf = win.getNativeWindowHandle()
+  // Windows: 4-byte LE HWND. Linux/Mac: varies but same concept.
+  return buf.readUInt32LE(0).toString()
+}
+
+function createPlayerWindow(): void {
+  if (playerWindow) { playerWindow.close(); playerWindow = null }
   if (overlayWindow) { overlayWindow.close(); overlayWindow = null }
 
+  // Black host window — mpv renders inside this via --wid
+  playerWindow = new BrowserWindow({
+    width: 1920,
+    height: 1080,
+    backgroundColor: '#000000',
+    frame: false,
+    show: false, // shown after mpv is ready
+    skipTaskbar: false,
+    webPreferences: { nodeIntegration: false, contextIsolation: true },
+  })
+  playerWindow.maximize()
+
+  // Transparent overlay — child of playerWindow, so it stays above mpv
+  // but doesn't block other apps (no alwaysOnTop needed)
   overlayWindow = new BrowserWindow({
     width: 1920,
     height: 1080,
     transparent: true,
     frame: false,
-    // Start alwaysOnTop so overlay is above mpv. Z-order is managed dynamically
-    // via mpv's 'focused' property — when user Alt-Tabs away, we lower it.
-    alwaysOnTop: true,
+    parent: playerWindow,
     skipTaskbar: true,
     hasShadow: false,
     backgroundColor: '#00000000',
@@ -251,10 +277,9 @@ function createOverlayWindow(): void {
       backgroundThrottling: false,
     },
   })
-
   overlayWindow.maximize()
 
-  // Click-through: transparent areas pass events to mpv window behind
+  // Click-through: transparent areas pass events to mpv (inside playerWindow)
   overlayWindow.setIgnoreMouseEvents(true, { forward: true })
 
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
@@ -272,24 +297,26 @@ function createOverlayWindow(): void {
   })
 
   overlayWindow.on('closed', () => { overlayWindow = null })
+  playerWindow.on('closed', () => {
+    playerWindow = null
+    // If player window is closed (e.g. Alt+F4), clean up mpv
+    if (mpvInstance) { mpvInstance.quit(); mpvInstance = null; mpvPayload = null }
+    if (overlayWindow && !overlayWindow.isDestroyed()) { overlayWindow.close() }
+    overlayWindow = null
+    if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus() }
+  })
 }
 
-/** Called by mpv 'focused' event — raises/lowers overlay to match mpv's focus state */
-function setOverlayOnTop(onTop: boolean): void {
-  if (!overlayWindow || overlayWindow.isDestroyed()) return
-  if (onTop) {
-    overlayWindow.setAlwaysOnTop(true, 'pop-up-menu')
-  } else {
-    overlayWindow.setAlwaysOnTop(false)
-  }
-}
-
-function closeOverlayWindow(): void {
-  if (overlayWindow) {
+function closePlayerWindow(): void {
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
     overlayWindow.close()
     overlayWindow = null
   }
-  // Restore main window (was hidden during mpv playback)
+  if (playerWindow && !playerWindow.isDestroyed()) {
+    playerWindow.close()
+    playerWindow = null
+  }
+  // Restore main window
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show()
     mainWindow.focus()
@@ -340,24 +367,29 @@ ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
       broadcast('mpv:ended')
       mpvInstance = null
       mpvPayload = null
-      closeOverlayWindow()
+      closePlayerWindow()
     },
     error:      (err)  => broadcast('mpv:error', err),
-    ready:      ()     => broadcast('mpv:ready'),
-    // Raise/lower overlay when mpv gains/loses OS window focus
-    focused:    (hasFocus) => setOverlayOnTop(hasFocus),
+    ready:      ()     => {
+      // Show player window now that mpv is rendering
+      playerWindow?.show()
+      broadcast('mpv:ready')
+    },
   })
 
-  // Hide main window so mpv + overlay are the only visible windows
+  // Hide main window so player + overlay are the only visible windows
   mainWindow?.hide()
 
-  // Create overlay window before launching mpv so it's ready when mpv opens
-  createOverlayWindow()
+  // Create player host + overlay before launching mpv
+  createPlayerWindow()
 
   try {
+    const wid = playerWindow ? getWindowWid(playerWindow) : undefined
+    console.log('[mpv:launch] Embedding into HWND:', wid)
     await mpvInstance.launch(url, {
       startSecs: p.startPositionTicks > 0 ? p.startPositionTicks / 10_000_000 : undefined,
       title: p.title,
+      wid,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -365,8 +397,7 @@ ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
     broadcast('mpv:error', `mpv failed to start: ${msg}`)
     mpvInstance = null
     mpvPayload = null
-    closeOverlayWindow()
-    mainWindow?.show()
+    closePlayerWindow()
   }
 })
 
@@ -381,7 +412,7 @@ ipcMain.handle('mpv:set-aid',       (_e, aid: number)  => mpvInstance?.setAid(ai
 ipcMain.handle('mpv:set-sid',       (_e, sid: number)  => mpvInstance?.setSid(sid))
 ipcMain.handle('mpv:set-speed',    (_e, speed: number) => mpvInstance?.setSpeed(speed))
 ipcMain.handle('mpv:sub-add',      (_e, path: string) => mpvInstance?.subAdd(path))
-ipcMain.handle('mpv:quit',          ()         => { mpvInstance?.quit(); mpvInstance = null; mpvPayload = null; closeOverlayWindow() })
+ipcMain.handle('mpv:quit',          ()         => { mpvInstance?.quit(); mpvInstance = null; mpvPayload = null; closePlayerWindow() })
 
 // Bypass Chromium's autoplay policy so audio plays without requiring an active
 // user gesture at the exact moment video.play() is called. Without this,
@@ -405,7 +436,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   if (mpvInstance) { mpvInstance.quit(); mpvInstance = null }
-  closeOverlayWindow()
+  closePlayerWindow()
   if (discordRpc && discordReady) {
     discordRpc.clearActivity().catch(() => {})
     discordRpc.destroy().catch(() => {})
