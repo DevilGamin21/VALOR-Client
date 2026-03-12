@@ -241,8 +241,6 @@ function createOverlayWindow(): void {
     skipTaskbar: true,
     hasShadow: false,
     backgroundColor: '#00000000',
-    // Owned by main window — moves with it, no extra taskbar entry
-    parent: mainWindow ?? undefined,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -279,8 +277,9 @@ function closeOverlayWindow(): void {
     overlayWindow.close()
     overlayWindow = null
   }
-  // Restore focus to the main window so gamepad input resumes
+  // Restore main window (was hidden during mpv playback)
   if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show()
     mainWindow.focus()
   }
 }
@@ -335,6 +334,9 @@ ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
     ready:      ()     => broadcast('mpv:ready'),
   })
 
+  // Hide main window so mpv + overlay are the only visible windows
+  mainWindow?.hide()
+
   // Create overlay window before launching mpv so it's ready when mpv opens
   createOverlayWindow()
 
@@ -350,6 +352,7 @@ ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
     mpvInstance = null
     mpvPayload = null
     closeOverlayWindow()
+    mainWindow?.show()
   }
 })
 
