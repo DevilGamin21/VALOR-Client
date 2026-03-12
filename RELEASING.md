@@ -78,8 +78,8 @@ A complete cross-platform release has these assets in the GitHub Release:
 | `latest-linux.yml` | Linux | electron-updater version manifest |
 | `VALOR-Setup.AppImage` | Linux | Portable Linux app |
 | `VALOR-Setup.deb` | Linux | Debian/Ubuntu package |
-| `VALOR-Mobile.apk` | Android | Phone/tablet sideload APK |
-| `VALOR-TV.apk` | Android TV | Google TV / Android TV sideload APK |
+| `VALOR-mobile.apk` | Android | Phone/tablet sideload APK |
+| `VALOR-tv.apk` | Android TV | Google TV / Android TV sideload APK |
 
 Windows auto-update requires: `latest.yml` + `VALOR-Setup.exe` + blockmap.
 Linux AppImage auto-update requires: `latest-linux.yml` + AppImage.
@@ -166,19 +166,19 @@ cd c:\VALOR-TV
 ./gradlew assembleMobileRelease assembleTvRelease
 
 # Copy APKs with release names
-cp app/build/outputs/apk/mobile/release/app-mobile-release.apk VALOR-Mobile.apk
-cp app/build/outputs/apk/tv/release/app-tv-release.apk VALOR-TV.apk
+cp app/build/outputs/apk/mobile/release/app-mobile-release.apk VALOR-mobile.apk
+cp app/build/outputs/apk/tv/release/app-tv-release.apk VALOR-tv.apk
 
 # Upload to the same GitHub Release
 curl -s -L --post301 --location-trusted -X POST \
   -u "DevilGamin21:$TOKEN" -H "Content-Type: application/vnd.android.package-archive" \
-  "https://uploads.github.com/repos/DevilGamin21/VALOR-Client/releases/$RELEASE_ID/assets?name=VALOR-Mobile.apk" \
-  --data-binary @VALOR-Mobile.apk
+  "https://uploads.github.com/repos/DevilGamin21/VALOR-Client/releases/$RELEASE_ID/assets?name=VALOR-mobile.apk" \
+  --data-binary @VALOR-mobile.apk
 
 curl -s -L --post301 --location-trusted -X POST \
   -u "DevilGamin21:$TOKEN" -H "Content-Type: application/vnd.android.package-archive" \
-  "https://uploads.github.com/repos/DevilGamin21/VALOR-Client/releases/$RELEASE_ID/assets?name=VALOR-TV.apk" \
-  --data-binary @VALOR-TV.apk
+  "https://uploads.github.com/repos/DevilGamin21/VALOR-Client/releases/$RELEASE_ID/assets?name=VALOR-tv.apk" \
+  --data-binary @VALOR-tv.apk
 ```
 
 For debug testing (no signing config needed):
