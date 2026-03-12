@@ -152,6 +152,11 @@ curl -s -L --post301 --location-trusted -X POST \
 
 ### Android assets
 
+> **WARNING:** Android APKs MUST be uploaded to the **same GitHub Release** as the Windows build.
+> Do NOT create a separate release for Android — electron-updater checks the latest release
+> for `latest.yml`, and an Android-only release will shadow the Windows update and break
+> auto-update for all desktop users.
+
 Build from the VALOR-TV (VALOR-Android) project:
 
 ```bash
