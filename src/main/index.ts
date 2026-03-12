@@ -246,14 +246,17 @@ function createPlayerWindow(): void {
   if (playerWindow) { playerWindow.close(); playerWindow = null }
   if (overlayWindow) { overlayWindow.close(); overlayWindow = null }
 
-  // Black host window — mpv renders inside this via --wid
+  // Host window for mpv — transparent so Chromium's compositor doesn't paint
+  // over the mpv child window. mpv provides its own black background behind video.
   playerWindow = new BrowserWindow({
     width: 1920,
     height: 1080,
-    backgroundColor: '#000000',
+    transparent: true,
+    backgroundColor: '#00000000',
     frame: false,
     show: false, // shown after mpv is ready
     skipTaskbar: false,
+    hasShadow: false,
     webPreferences: { nodeIntegration: false, contextIsolation: true },
   })
   playerWindow.maximize()
