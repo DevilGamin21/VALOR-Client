@@ -1,7 +1,7 @@
 import { useState, useMemo, FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Loader2, AlertCircle } from 'lucide-react'
+import { Loader2, AlertCircle, ArrowLeft } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import TitleBar from '@/components/TitleBar'
 
@@ -24,6 +24,8 @@ const item = {
 export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const isAddAccount = searchParams.get('addAccount') === 'true'
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -156,7 +158,9 @@ export default function Login() {
                   <span className="text-2xl font-black text-red-400 select-none">V</span>
                 </motion.div>
                 <h1 className="text-[2.6rem] font-black tracking-[0.42em] text-white leading-none">VALOR</h1>
-                <p className="mt-3 text-[10px] tracking-[0.3em] text-red-400/50 uppercase">Private Cinema</p>
+                <p className="mt-3 text-[10px] tracking-[0.3em] text-red-400/50 uppercase">
+                  {isAddAccount ? 'Add Account' : 'Private Cinema'}
+                </p>
               </motion.div>
 
               {/* Gradient border card */}
@@ -245,6 +249,18 @@ export default function Login() {
                         {isAnimating ? 'Signing in...' : 'Sign in'}
                       </span>
                     </motion.button>
+
+                    {isAddAccount && !isAnimating && (
+                      <button
+                        type="button"
+                        onClick={() => navigate('/home', { replace: true })}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 text-[10px] uppercase
+                                   tracking-[0.2em] text-white/40 hover:text-white/70 transition"
+                      >
+                        <ArrowLeft size={12} />
+                        Cancel
+                      </button>
+                    )}
                   </form>
 
                 </div>

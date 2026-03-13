@@ -39,6 +39,13 @@ export interface MpvLaunchPayload {
 
 declare const __APP_VERSION__: string
 
+export interface AccountEntry {
+  id: string
+  username: string
+  token: string
+  avatarUrl: string | null
+}
+
 declare global {
   interface Window {
     electronAPI: {
@@ -49,6 +56,10 @@ declare global {
         getToken: () => Promise<string | null>
         setToken: (token: string) => Promise<void>
         clearToken: () => Promise<void>
+        getAccounts: () => Promise<AccountEntry[]>
+        addAccount: (account: AccountEntry) => Promise<void>
+        removeAccount: (id: string) => Promise<void>
+        switchAccount: (id: string) => Promise<void>
       }
       window: {
         minimize: () => Promise<void>

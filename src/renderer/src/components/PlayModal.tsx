@@ -47,6 +47,9 @@ export default function PlayModal({ item, onClose }: Props) {
   const [loadingPlay, setLoadingPlay] = useState(false)
   const [error, setError] = useState('')
 
+  // Movie watched state (on-demand movies only)
+  const [movieWatched, setMovieWatched] = useState((item.playedPercentage ?? 0) >= 90)
+
   // Resume prompt (Jellyfin movies only)
   const [resumeTicks, setResumeTicks] = useState<number | null>(null)
   const [showResume, setShowResume] = useState(false)
@@ -324,6 +327,20 @@ export default function PlayModal({ item, onClose }: Props) {
       }
     }
     playEpisode(ep.jellyfinId)
+  }
+
+  async function handleMovieMarkWatched() {
+    try {
+      if (movieWatched) {
+        await api.markItemUnplayed(String(item.id))
+      } else {
+        await api.markItemPlayed(String(item.id))
+      }
+      setMovieWatched(!movieWatched)
+    } catch (e) {
+      console.error('[PlayModal] movie markWatched failed:', e)
+      setError(`Could not update watch status: ${(e as Error).message}`)
+    }
   }
 
   async function handleMarkWatched(ep: MergedEpisode, watched: boolean) {
@@ -616,6 +633,22 @@ export default function PlayModal({ item, onClose }: Props) {
                   <><Plus size={14} /> Save</>
                 )}
               </button>
+
+              {item.onDemand && item.type === 'movie' && (
+                <button
+                  data-focusable
+                  onClick={handleMovieMarkWatched}
+                  title={movieWatched ? 'Remove from watched' : 'Mark as watched'}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
+                             bg-white/10 hover:bg-white/15 text-white text-sm transition"
+                >
+                  {movieWatched ? (
+                    <><EyeOff size={14} /> Watched</>
+                  ) : (
+                    <><Eye size={14} /> Watch</>
+                  )}
+                </button>
+              )}
             </div>
           )}
 

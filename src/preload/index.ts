@@ -7,7 +7,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   auth: {
     getToken: (): Promise<string | null> => ipcRenderer.invoke('auth:getToken'),
     setToken: (token: string): Promise<void> => ipcRenderer.invoke('auth:setToken', token),
-    clearToken: (): Promise<void> => ipcRenderer.invoke('auth:clearToken')
+    clearToken: (): Promise<void> => ipcRenderer.invoke('auth:clearToken'),
+    getAccounts: (): Promise<{ id: string; username: string; token: string; avatarUrl: string | null }[]> =>
+      ipcRenderer.invoke('auth:getAccounts'),
+    addAccount: (account: { id: string; username: string; token: string; avatarUrl: string | null }): Promise<void> =>
+      ipcRenderer.invoke('auth:addAccount', account),
+    removeAccount: (id: string): Promise<void> => ipcRenderer.invoke('auth:removeAccount', id),
+    switchAccount: (id: string): Promise<void> => ipcRenderer.invoke('auth:switchAccount', id),
   },
   window: {
     minimize: (): Promise<void> => ipcRenderer.invoke('win:minimize'),

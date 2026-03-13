@@ -6,7 +6,18 @@ import { autoUpdater } from 'electron-updater'
 import type { Client as DiscordRpcClient, Presence } from 'discord-rpc'
 import { MpvPlayer, isMpvAvailable } from './mpvPlayer'
 
-const store = new Store<{ token: string }>()
+interface AccountEntry {
+  id: string
+  username: string
+  token: string
+  avatarUrl: string | null
+}
+interface StoreSchema {
+  token: string                       // legacy single-token (migrated on first use)
+  accounts: AccountEntry[]
+  activeAccountId: string | null
+}
+const store = new Store<StoreSchema>({ defaults: { token: '', accounts: [], activeAccountId: null } })
 const API_ORIGIN = 'https://valor.dawn-star.co.uk'
 
 let mainWindow: BrowserWindow | null = null
@@ -179,10 +190,60 @@ ipcMain.handle('win:maximize', () => {
 ipcMain.handle('win:close', () => mainWindow?.close())
 ipcMain.handle('win:isMaximized', () => mainWindow?.isMaximized() ?? false)
 
-// ─── Auth token IPC ───────────────────────────────────────────────────────────
-ipcMain.handle('auth:getToken', () => store.get('token', null))
-ipcMain.handle('auth:setToken', (_e, token: string) => store.set('token', token))
-ipcMain.handle('auth:clearToken', () => store.delete('token'))
+// ─── Auth token IPC (multi-account) ───────────────────────────────────────────
+ipcMain.handle('auth:getToken', () => {
+  const activeId = store.get('activeAccountId')
+  if (activeId) {
+    const acct = (store.get('accounts', []) as AccountEntry[]).find(a => a.id === activeId)
+    if (acct) return acct.token
+  }
+  // Legacy fallback — single token stored before multi-account migration
+  return store.get('token', null) || null
+})
+
+ipcMain.handle('auth:setToken', (_e, token: string) => {
+  // Legacy path — kept for backward compat during login flow
+  store.set('token', token)
+})
+
+ipcMain.handle('auth:clearToken', () => {
+  const activeId = store.get('activeAccountId')
+  if (activeId) {
+    const accounts = (store.get('accounts', []) as AccountEntry[]).filter(a => a.id !== activeId)
+    store.set('accounts', accounts)
+    store.set('activeAccountId', accounts[0]?.id ?? null)
+  } else {
+    store.delete('token')
+  }
+})
+
+ipcMain.handle('auth:getAccounts', () => store.get('accounts', []))
+
+ipcMain.handle('auth:addAccount', (_e, account: AccountEntry) => {
+  const accounts = store.get('accounts', []) as AccountEntry[]
+  const idx = accounts.findIndex(a => a.id === account.id)
+  if (idx >= 0) {
+    accounts[idx] = account
+  } else {
+    accounts.push(account)
+  }
+  store.set('accounts', accounts)
+  store.set('activeAccountId', account.id)
+  // Clear legacy single-token key
+  store.delete('token')
+})
+
+ipcMain.handle('auth:removeAccount', (_e, accountId: string) => {
+  const accounts = (store.get('accounts', []) as AccountEntry[]).filter(a => a.id !== accountId)
+  store.set('accounts', accounts)
+  if (store.get('activeAccountId') === accountId) {
+    store.set('activeAccountId', accounts[0]?.id ?? null)
+  }
+})
+
+ipcMain.handle('auth:switchAccount', (_e, accountId: string) => {
+  store.set('activeAccountId', accountId)
+})
 
 // ─── System IPC ───────────────────────────────────────────────────────────────
 ipcMain.handle('system:sleep', () => {

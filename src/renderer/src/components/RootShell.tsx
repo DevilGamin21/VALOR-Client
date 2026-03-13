@@ -13,6 +13,8 @@ import {
   Settings,
   Boxes,
   Compass,
+  Plus,
+  User as UserIcon,
 } from 'lucide-react'
 import TitleBar from './TitleBar'
 import VideoPlayer from './VideoPlayer'
@@ -38,7 +40,7 @@ const iconInactive =
   'text-white/50 hover:text-white/90 hover:bg-white/10'
 
 export default function RootShell() {
-  const { user, logout } = useAuth()
+  const { user, logout, accounts, switchAccount } = useAuth()
   const { isOpen, job, startPositionTicks, closePlayer } = usePlayer()
   const { discordRPC } = useSettings()
   const navigate = useNavigate()
@@ -46,6 +48,7 @@ export default function RootShell() {
   const [hasUpdate, setHasUpdate] = useState(false)
   const [updateReady, setUpdateReady] = useState(false)
   const [avatarError, setAvatarError] = useState(false)
+  const [showAccountSwitcher, setShowAccountSwitcher] = useState(false)
   const mainRef = useRef<HTMLDivElement>(null)
 
   // Reset avatar error when URL changes (e.g. after upload)
@@ -71,7 +74,10 @@ export default function RootShell() {
 
   async function handleLogout() {
     await logout()
-    navigate('/login')
+    // AuthContext.logout switches to next account if available;
+    // only navigate to login if no user remains
+    const remaining = await window.electronAPI.auth.getAccounts()
+    if (remaining.length === 0) navigate('/login')
   }
 
   return (
@@ -81,17 +87,15 @@ export default function RootShell() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* ── Narrow icon sidebar ──────────────────────────────────────────── */}
-        <aside className="flex-shrink-0 w-14 flex flex-col bg-black/70 border-r border-white/10">
+        <aside className="relative flex-shrink-0 w-14 flex flex-col bg-black/70 border-r border-white/10">
 
-          {/* Avatar → Profile (top of sidebar) */}
+          {/* Avatar → Account switcher (top of sidebar) */}
           <div className="pt-3 flex flex-col items-center gap-1 px-2">
-            <NavLink
+            <button
               data-focusable
-              to="/profile"
-              title="Profile"
-              className={({ isActive }) =>
-                `${iconBase} ${isActive ? iconActive : iconInactive}`
-              }
+              onClick={() => setShowAccountSwitcher(prev => !prev)}
+              title="Account switcher"
+              className={`${iconBase} ${showAccountSwitcher ? iconActive : iconInactive}`}
             >
               {user?.avatarUrl && !avatarError ? (
                 <img
@@ -105,7 +109,65 @@ export default function RootShell() {
                   {user?.username?.[0]?.toUpperCase() ?? '?'}
                 </div>
               )}
-            </NavLink>
+            </button>
+
+            {/* Account switcher popover */}
+            {showAccountSwitcher && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowAccountSwitcher(false)} />
+                <div className="absolute left-16 top-2 z-50 bg-[#1a1a1a] border border-white/10 rounded-xl shadow-2xl p-4 min-w-[200px]">
+                  {/* Account circles */}
+                  <div className="flex items-center gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
+                    {accounts.map(acct => (
+                      <button
+                        key={acct.id}
+                        onClick={() => { switchAccount(acct.id); setShowAccountSwitcher(false) }}
+                        className={`flex-shrink-0 flex flex-col items-center gap-1 transition ${
+                          acct.id === user?.id ? 'opacity-100' : 'opacity-50 hover:opacity-80'
+                        }`}
+                      >
+                        <div className={`w-10 h-10 rounded-full overflow-hidden border-2 ${
+                          acct.id === user?.id ? 'border-red-500' : 'border-transparent'
+                        }`}>
+                          {acct.avatarUrl ? (
+                            <img src={acct.avatarUrl} className="w-full h-full object-cover" alt={acct.username} />
+                          ) : (
+                            <div className="w-full h-full bg-white/80 text-black flex items-center justify-center text-sm font-bold">
+                              {acct.username[0]?.toUpperCase()}
+                            </div>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-white/60 truncate max-w-[56px]">{acct.username}</span>
+                      </button>
+                    ))}
+
+                    {/* Add account button */}
+                    <button
+                      onClick={() => { setShowAccountSwitcher(false); navigate('/login?addAccount=true') }}
+                      className="flex-shrink-0 flex flex-col items-center gap-1 opacity-50 hover:opacity-80 transition"
+                      title="Add account"
+                    >
+                      <div className="w-10 h-10 rounded-full border-2 border-dashed border-white/20 flex items-center justify-center">
+                        <Plus size={16} className="text-white/40" />
+                      </div>
+                      <span className="text-[10px] text-white/40">Add</span>
+                    </button>
+                  </div>
+
+                  {/* Profile Settings link */}
+                  <div className="mt-2 pt-2 border-t border-white/10">
+                    <button
+                      onClick={() => { setShowAccountSwitcher(false); navigate('/profile') }}
+                      className="w-full text-left text-sm text-white/60 hover:text-white py-1.5 px-1 rounded
+                                 hover:bg-white/5 transition flex items-center gap-2"
+                    >
+                      <UserIcon size={14} />
+                      Profile Settings
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Divider */}
             <div className="w-6 h-px bg-white/10 my-1" />
