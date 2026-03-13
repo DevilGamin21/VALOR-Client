@@ -15,6 +15,7 @@ import Profile from '@/pages/Profile'
 import Admin from '@/pages/Admin'
 import Pruna from '@/pages/Pruna'
 import Settings from '@/pages/Settings'
+import Discover from '@/pages/Discover'
 import PlayerOverlay from '@/pages/PlayerOverlay'
 export default function App() {
   return (
@@ -41,6 +42,7 @@ export default function App() {
                   <Route path="movies" element={<Movies />} />
                   <Route path="tv" element={<TV />} />
                   <Route path="watchlist" element={<Watchlist />} />
+                  <Route path="discover" element={<Discover />} />
                   <Route path="profile" element={<Profile />} />
                   <Route path="admin" element={<Admin />} />
                   <Route path="pruna" element={<Pruna />} />

@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setSpeed: (speed: number): Promise<void> => ipcRenderer.invoke('mpv:set-speed', speed),
     subAdd: (path: string): Promise<void> => ipcRenderer.invoke('mpv:sub-add', path),
     quit: (): Promise<void> => ipcRenderer.invoke('mpv:quit'),
+    fullscreen: (): Promise<void> => ipcRenderer.invoke('mpv:fullscreen'),
     // Events pushed from main process → renderer.
     // Each `on*` replaces previous listeners for that channel to prevent leaks.
     onReady: (cb: () => void): void => {

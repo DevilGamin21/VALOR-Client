@@ -416,6 +416,11 @@ ipcMain.handle('mpv:set-sid',       (_e, sid: number)  => mpvInstance?.setSid(si
 ipcMain.handle('mpv:set-speed',    (_e, speed: number) => mpvInstance?.setSpeed(speed))
 ipcMain.handle('mpv:sub-add',      (_e, path: string) => mpvInstance?.subAdd(path))
 ipcMain.handle('mpv:quit',          ()         => { mpvInstance?.quit(); mpvInstance = null; mpvPayload = null; closePlayerWindow() })
+ipcMain.handle('mpv:fullscreen',   ()         => {
+  if (playerWindow) {
+    playerWindow.setFullScreen(!playerWindow.isFullScreen())
+  }
+})
 
 // Bypass Chromium's autoplay policy so audio plays without requiring an active
 // user gesture at the exact moment video.play() is called. Without this,

@@ -89,6 +89,7 @@ declare global {
         setSpeed: (speed: number) => Promise<void>
         subAdd: (path: string) => Promise<void>
         quit: () => Promise<void>
+        fullscreen: () => Promise<void>
         onReady: (cb: () => void) => void
         onTime: (cb: (time: number) => void) => void
         onDuration: (cb: (duration: number) => void) => void

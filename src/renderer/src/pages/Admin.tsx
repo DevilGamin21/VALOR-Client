@@ -1,6 +1,7 @@
 import { useEffect, useState, Fragment } from 'react'
-import { Loader2, Plus, Trash2, Check, X, Shield, Database, RefreshCw } from 'lucide-react'
+import { Loader2, Plus, Trash2, Check, X, Shield, Database, RefreshCw, ChevronDown, ChevronRight, Activity, Link2 } from 'lucide-react'
 import * as api from '@/services/api'
+import type { PlaybackStats, SymlinkHealthResult } from '@/services/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import type { User } from '@/types/media'
@@ -384,6 +385,274 @@ export default function Admin() {
           </tbody>
         </table>
       </div>
+
+      {/* ── Playback Stats ─────────────────────────────────────────────── */}
+      <PlaybackStatsSection />
+
+      {/* ── Symlink Health ─────────────────────────────────────────────── */}
+      <SymlinkHealthSection />
+    </div>
+  )
+}
+
+// ─── Playback Stats ──────────────────────────────────────────────────────────
+
+function PlaybackStatsSection() {
+  const [open, setOpen] = useState(false)
+  const [days, setDays] = useState(30)
+  const [stats, setStats] = useState<PlaybackStats | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setLoading(true)
+    api.getPlaybackStats(days)
+      .then(setStats)
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [open, days])
+
+  const maxHourly = stats ? Math.max(...stats.hourlyDistribution, 1) : 1
+
+  return (
+    <div className="mt-6 rounded-lg border border-dark-border bg-dark-card overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-4 py-3 hover:bg-white/[0.03] transition-colors"
+      >
+        {open ? <ChevronDown size={14} className="text-white/40" /> : <ChevronRight size={14} className="text-white/40" />}
+        <Activity size={14} className="text-red-500" />
+        <span className="text-sm font-semibold text-white">Playback Stats</span>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 border-t border-dark-border">
+          {/* Time range buttons */}
+          <div className="flex gap-2 my-3">
+            {[7, 14, 30, 90].map((d) => (
+              <button
+                key={d}
+                onClick={() => setDays(d)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  days === d ? 'bg-red-600 text-white' : 'bg-white/8 text-white/50 hover:bg-white/12'
+                }`}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center h-32">
+              <Loader2 size={18} className="animate-spin text-white/30" />
+            </div>
+          ) : stats ? (
+            <>
+              {/* Summary cards */}
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="rounded-lg bg-white/5 p-3">
+                  <p className="text-white/40 text-[10px] uppercase tracking-wide">Total Plays</p>
+                  <p className="text-white text-lg font-bold">{stats.totalPlays}</p>
+                </div>
+                <div className="rounded-lg bg-white/5 p-3">
+                  <p className="text-white/40 text-[10px] uppercase tracking-wide">Unique Users</p>
+                  <p className="text-white text-lg font-bold">{stats.uniqueUsers}</p>
+                </div>
+              </div>
+
+              {/* User activity table */}
+              {stats.users.length > 0 && (
+                <div className="overflow-x-auto rounded-lg border border-dark-border mb-4">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-white/5 text-white/50">
+                      <tr>
+                        <th className="text-left px-3 py-1.5 font-medium">Username</th>
+                        <th className="text-right px-3 py-1.5 font-medium">Total Plays</th>
+                        <th className="text-right px-3 py-1.5 font-medium">Active Days</th>
+                        <th className="text-right px-3 py-1.5 font-medium">Avg/Day</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stats.users.map((u) => (
+                        <tr key={u.username} className="border-t border-dark-border">
+                          <td className="px-3 py-1.5 text-white font-medium">{u.username}</td>
+                          <td className="px-3 py-1.5 text-white/60 text-right">{u.totalPlays}</td>
+                          <td className="px-3 py-1.5 text-white/60 text-right">{u.activeDays}</td>
+                          <td className="px-3 py-1.5 text-white/60 text-right">{u.avgPlaysPerDay.toFixed(1)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Hourly distribution chart */}
+              {stats.hourlyDistribution.length === 24 && (
+                <div>
+                  <p className="text-white/40 text-[10px] uppercase tracking-wide mb-2">Hourly Distribution</p>
+                  <div className="flex items-end gap-[3px] h-20">
+                    {stats.hourlyDistribution.map((count, i) => (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+                        <div
+                          className="w-full bg-red-500 rounded-sm min-h-[2px] transition-all"
+                          style={{ height: `${(count / maxHourly) * 100}%` }}
+                          title={`${i}:00 — ${count} plays`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-[9px] text-white/30">0:00</span>
+                    <span className="text-[9px] text-white/30">6:00</span>
+                    <span className="text-[9px] text-white/30">12:00</span>
+                    <span className="text-[9px] text-white/30">18:00</span>
+                    <span className="text-[9px] text-white/30">23:00</span>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-white/40 text-sm py-4">No stats available.</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Symlink Health ──────────────────────────────────────────────────────────
+
+function SymlinkHealthSection() {
+  const [open, setOpen] = useState(false)
+  const [result, setResult] = useState<SymlinkHealthResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [running, setRunning] = useState(false)
+  const [deepCheck, setDeepCheck] = useState(false)
+  const [autoRefetch, setAutoRefetch] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setLoading(true)
+    api.getSymlinkHealth()
+      .then(setResult)
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [open])
+
+  async function handleRun() {
+    setRunning(true)
+    try {
+      const res = await api.runSymlinkHealth({ deepCheck, autoRefetch })
+      setResult(res)
+    } catch (e) {
+      console.error('Symlink health check failed', e)
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-lg border border-dark-border bg-dark-card overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-4 py-3 hover:bg-white/[0.03] transition-colors"
+      >
+        {open ? <ChevronDown size={14} className="text-white/40" /> : <ChevronRight size={14} className="text-white/40" />}
+        <Link2 size={14} className="text-red-500" />
+        <span className="text-sm font-semibold text-white">Symlink Health</span>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 border-t border-dark-border">
+          {/* Controls */}
+          <div className="flex flex-wrap items-center gap-3 my-3">
+            <button
+              onClick={handleRun}
+              disabled={running}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500
+                         text-white text-xs font-medium transition disabled:opacity-50"
+            >
+              {running ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+              Run Health Check
+            </button>
+            <label className="flex items-center gap-1.5 text-xs text-white/50 cursor-pointer">
+              <input type="checkbox" checked={deepCheck} onChange={(e) => setDeepCheck(e.target.checked)}
+                className="accent-red-500" />
+              Deep check
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-white/50 cursor-pointer">
+              <input type="checkbox" checked={autoRefetch} onChange={(e) => setAutoRefetch(e.target.checked)}
+                className="accent-red-500" />
+              Auto-refetch broken
+            </label>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center h-24">
+              <Loader2 size={18} className="animate-spin text-white/30" />
+            </div>
+          ) : result ? (
+            <>
+              {/* Stat cards */}
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="rounded-lg bg-white/5 p-3">
+                  <p className="text-white/40 text-[10px] uppercase tracking-wide">Total</p>
+                  <p className="text-white text-lg font-bold">{result.total}</p>
+                </div>
+                <div className="rounded-lg bg-white/5 p-3">
+                  <p className="text-white/40 text-[10px] uppercase tracking-wide">Healthy</p>
+                  <p className="text-emerald-400 text-lg font-bold">{result.healthy}</p>
+                </div>
+                <div className="rounded-lg bg-white/5 p-3">
+                  <p className="text-white/40 text-[10px] uppercase tracking-wide">Broken</p>
+                  <p className={`text-lg font-bold ${result.broken > 0 ? 'text-red-400' : 'text-white'}`}>{result.broken}</p>
+                </div>
+              </div>
+
+              {result.lastChecked && (
+                <p className="text-white/30 text-[10px] mb-3">
+                  Last checked: {new Date(result.lastChecked).toLocaleString()}
+                </p>
+              )}
+
+              {/* Broken items list */}
+              {result.brokenItems.length > 0 && (
+                <div className="overflow-x-auto rounded-lg border border-dark-border">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-white/5 text-white/50">
+                      <tr>
+                        <th className="text-left px-3 py-1.5 font-medium">Title</th>
+                        <th className="text-left px-3 py-1.5 font-medium">Type</th>
+                        <th className="text-left px-3 py-1.5 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.brokenItems.map((item, i) => (
+                        <tr key={i} className="border-t border-dark-border">
+                          <td className="px-3 py-1.5 text-white font-medium">{item.title}</td>
+                          <td className="px-3 py-1.5 text-white/40">{item.type}</td>
+                          <td className="px-3 py-1.5">
+                            {item.refetchStatus ? (
+                              <span className="text-yellow-400">{item.refetchStatus}</span>
+                            ) : (
+                              <span className="text-red-400">Broken</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {result.broken === 0 && (
+                <p className="text-emerald-400/60 text-xs">All symlinks healthy.</p>
+              )}
+            </>
+          ) : (
+            <p className="text-white/40 text-sm py-4">Run a health check to see results.</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

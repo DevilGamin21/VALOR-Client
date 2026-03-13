@@ -33,6 +33,8 @@ import {
   Moon,
   Search,
   Check,
+  Maximize,
+  Minimize,
 } from 'lucide-react'
 import * as api from '@/services/api'
 import type { OsSubtitleResult } from '@/services/api'
@@ -143,6 +145,7 @@ export default function PlayerOverlay() {
   const [buffering, setBuffering] = useState(true)
   const [error, setError] = useState('')
   const [ended, setEnded] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
   // ── State: UI panels ────────────────────────────────────────────────────
   const [controlsVisible, setControlsVisible] = useState(true)
@@ -1204,6 +1207,43 @@ export default function PlayerOverlay() {
         onClick={() => window.electronAPI.mpv.togglePause()}
       />
 
+      {/* Skip Intro / Skip Credits buttons */}
+      {currentJob?.job.introStartSec != null && currentJob?.job.introEndSec != null &&
+        time >= currentJob.job.introStartSec && time < currentJob.job.introEndSec && (
+        <button
+          onMouseEnter={() => setInteractive(true)}
+          onMouseLeave={() => setInteractive(false)}
+          onClick={() => {
+            if (currentJob?.job.introEndSec != null) {
+              window.electronAPI.mpv.seekAbsolute(currentJob.job.introEndSec)
+            }
+          }}
+          className="absolute bottom-24 right-6 z-20 px-5 py-2.5 rounded-lg
+                     bg-white/15 backdrop-blur-sm border border-white/30
+                     text-white text-sm font-medium hover:bg-white/25 transition-colors"
+        >
+          Skip Intro
+        </button>
+      )}
+      {currentJob?.job.creditsStartSec != null && time >= currentJob.job.creditsStartSec && (
+        <button
+          onMouseEnter={() => setInteractive(true)}
+          onMouseLeave={() => setInteractive(false)}
+          onClick={() => {
+            if (nextEpisode) {
+              switchEpisode(nextEpisode)
+            } else {
+              window.electronAPI.mpv.quit()
+            }
+          }}
+          className="absolute bottom-24 right-6 z-20 px-5 py-2.5 rounded-lg
+                     bg-white/15 backdrop-blur-sm border border-white/30
+                     text-white text-sm font-medium hover:bg-white/25 transition-colors"
+        >
+          {nextEpisode ? 'Next Episode' : 'Skip Credits'}
+        </button>
+      )}
+
       {/* Controls bar */}
       <motion.div
         animate={{ opacity: controlsVisible ? 1 : 0 }}
@@ -1338,6 +1378,19 @@ export default function PlayerOverlay() {
               <List size={18} />
             </button>
           )}
+
+          {/* Fullscreen */}
+          <button
+            data-gp-control data-focusable
+            onClick={() => {
+              window.electronAPI.mpv.fullscreen()
+              setIsFullscreen((v) => !v)
+            }}
+            className="text-white/70 hover:text-white transition"
+            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          >
+            {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+          </button>
         </div>
       </motion.div>
 

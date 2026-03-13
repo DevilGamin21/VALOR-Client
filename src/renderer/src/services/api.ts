@@ -358,6 +358,88 @@ export async function getDiagnostics(): Promise<Record<string, unknown>> {
   return request('/admin/diagnostics')
 }
 
+// ─── Collections & Discover ──────────────────────────────────────────────
+
+export interface CollectionSummary {
+  name: string
+  jellyfinCollectionId: string
+  tmdbCollectionId: number | null
+  itemCount: number
+  posterUrl: string | null
+}
+
+export interface CollectionDetail {
+  name: string
+  overview: string
+  posterUrl: string | null
+  backdropUrl: string | null
+  items: UnifiedMedia[]
+}
+
+export async function getCollections(): Promise<CollectionSummary[]> {
+  const res = await request<{ success: boolean; collections: CollectionSummary[] }>('/jellyfin/collections')
+  return res.collections ?? []
+}
+
+export async function getCollection(tmdbId: number): Promise<CollectionDetail> {
+  return request(`/tmdb/collection/${tmdbId}`)
+}
+
+export async function discoverByProvider(
+  type: 'movie' | 'tv',
+  providerId: number,
+  page = 1
+): Promise<{ results: UnifiedMedia[]; totalPages: number }> {
+  return request(`/tmdb/discover/${type}?provider=${providerId}&page=${page}&region=GB`)
+}
+
+// ─── Admin: playback stats & symlink health ─────────────────────────────
+
+export interface PlaybackStatsUser {
+  username: string
+  totalPlays: number
+  activeDays: number
+  avgPlaysPerDay: number
+}
+
+export interface PlaybackStats {
+  users: PlaybackStatsUser[]
+  hourlyDistribution: number[]
+  totalPlays: number
+  uniqueUsers: number
+}
+
+export async function getPlaybackStats(days = 30): Promise<PlaybackStats> {
+  return request(`/admin/playback-stats?days=${days}`)
+}
+
+export interface SymlinkHealthResult {
+  total: number
+  healthy: number
+  broken: number
+  brokenItems: Array<{
+    title: string
+    path: string
+    type: string
+    refetchStatus?: string
+  }>
+  lastChecked?: string
+}
+
+export async function getSymlinkHealth(): Promise<SymlinkHealthResult> {
+  return request('/admin/symlink-health')
+}
+
+export async function runSymlinkHealth(opts: {
+  deepCheck?: boolean
+  autoRefetch?: boolean
+} = {}): Promise<SymlinkHealthResult> {
+  return request('/admin/symlink-health', {
+    method: 'POST',
+    body: JSON.stringify(opts)
+  })
+}
+
 // ─── Subtitles ────────────────────────────────────────────────────────────────
 
 export interface OsSubtitleResult {

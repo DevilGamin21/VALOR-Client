@@ -1395,6 +1395,39 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         <X size={18} className="text-white" />
       </button>
 
+      {/* Skip Intro / Skip Credits buttons */}
+      {job.introStartSec != null && job.introEndSec != null &&
+        currentTime >= job.introStartSec && currentTime < job.introEndSec && (
+        <button
+          onClick={() => {
+            const v = videoRef.current
+            if (v && job.introEndSec != null) v.currentTime = job.introEndSec
+          }}
+          className="absolute bottom-24 right-6 z-20 px-5 py-2.5 rounded-lg
+                     bg-white/15 backdrop-blur-sm border border-white/30
+                     text-white text-sm font-medium hover:bg-white/25 transition-colors"
+        >
+          Skip Intro
+        </button>
+      )}
+      {job.creditsStartSec != null && currentTime >= job.creditsStartSec && (
+        <button
+          onClick={() => {
+            if (nextEpisode) {
+              switchEpisode(nextEpisode)
+            } else {
+              const v = videoRef.current
+              if (v) v.currentTime = v.duration
+            }
+          }}
+          className="absolute bottom-24 right-6 z-20 px-5 py-2.5 rounded-lg
+                     bg-white/15 backdrop-blur-sm border border-white/30
+                     text-white text-sm font-medium hover:bg-white/25 transition-colors"
+        >
+          {nextEpisode ? 'Next Episode' : 'Skip Credits'}
+        </button>
+      )}
+
       {/* Controls overlay */}
       <motion.div
         animate={{ opacity: controlsVisible ? 1 : 0 }}

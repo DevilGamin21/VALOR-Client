@@ -12,6 +12,7 @@ import {
   ArrowDownToLine,
   Settings,
   Boxes,
+  Compass,
 } from 'lucide-react'
 import TitleBar from './TitleBar'
 import VideoPlayer from './VideoPlayer'
@@ -25,6 +26,7 @@ const NAV = [
   { to: '/movies',    label: 'Movies',    icon: Film     },
   { to: '/tv',        label: 'TV Shows',  icon: Tv       },
   { to: '/watchlist', label: 'Watchlist', icon: Bookmark },
+  { to: '/discover', label: 'Discover', icon: Compass },
 ]
 
 // Shared nav icon classes — matches the website's icon sidebar style exactly

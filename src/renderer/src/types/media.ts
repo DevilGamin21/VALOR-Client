@@ -73,6 +73,12 @@ export interface PlayJob {
   seriesId?: string
   /** TMDB ID — used for progress reporting. */
   tmdbId?: number
+  /** IntroSkipper: intro segment start (seconds) */
+  introStartSec?: number | null
+  /** IntroSkipper: intro segment end (seconds) */
+  introEndSec?: number | null
+  /** IntroSkipper: credits start (seconds) */
+  creditsStartSec?: number | null
 }
 
 export interface Season {

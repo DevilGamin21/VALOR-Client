@@ -247,9 +247,6 @@ export default function Login() {
                     </motion.button>
                   </form>
 
-                  <p className="text-center text-white/15 text-[9px] tracking-[0.22em] uppercase mt-7 select-none">
-                    Project Valor &middot; All rights reserved
-                  </p>
                 </div>
               </motion.div>
             </motion.div>
