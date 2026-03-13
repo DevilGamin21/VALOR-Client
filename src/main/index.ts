@@ -307,15 +307,14 @@ function createPlayerWindow(): void {
   if (playerWindow) { playerWindow.close(); playerWindow = null }
   if (overlayWindow) { overlayWindow.close(); overlayWindow = null }
 
-  // Host window for mpv — transparent so Chromium's compositor doesn't paint
-  // over the mpv child window. mpv provides its own black background behind video.
+  // Host window for mpv — opaque black so the user sees a black screen instantly
+  // while mpv loads. mpv renders as a native child window (via --wid) on top.
   playerWindow = new BrowserWindow({
     width: 1920,
     height: 1080,
-    transparent: true,
-    backgroundColor: '#00000000',
+    backgroundColor: '#000000',
     frame: false,
-    show: false, // shown after mpv is ready
+    show: true,
     skipTaskbar: false,
     hasShadow: false,
     webPreferences: { nodeIntegration: false, contextIsolation: true },
@@ -435,8 +434,6 @@ ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
     },
     error:      (err)  => broadcast('mpv:error', err),
     ready:      ()     => {
-      // Show player window now that mpv is rendering
-      playerWindow?.show()
       broadcast('mpv:ready')
     },
   })
