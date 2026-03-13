@@ -361,8 +361,8 @@ export async function getDiagnostics(): Promise<Record<string, unknown>> {
 // ─── Collections & Discover ──────────────────────────────────────────────
 
 export interface CollectionSummary {
+  id: string
   name: string
-  jellyfinCollectionId: string
   tmdbCollectionId: number | null
   itemCount: number
   posterUrl: string | null
@@ -390,7 +390,10 @@ export async function discoverByProvider(
   providerId: number,
   page = 1
 ): Promise<{ results: UnifiedMedia[]; totalPages: number }> {
-  return request(`/tmdb/discover/${type}?provider=${providerId}&page=${page}&region=GB`)
+  const res = await request<{ success: boolean; items: UnifiedMedia[]; totalPages: number }>(
+    `/tmdb/discover/${type}?provider=${providerId}&page=${page}&region=GB`
+  )
+  return { results: res.items ?? [], totalPages: res.totalPages ?? 1 }
 }
 
 // ─── Admin: playback stats & symlink health ─────────────────────────────

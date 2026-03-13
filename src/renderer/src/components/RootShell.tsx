@@ -23,10 +23,10 @@ import { useSettings } from '@/contexts/SettingsContext'
 
 const NAV = [
   { to: '/home',      label: 'Home',      icon: Home     },
+  { to: '/discover',  label: 'Discover',  icon: Compass  },
   { to: '/movies',    label: 'Movies',    icon: Film     },
   { to: '/tv',        label: 'TV Shows',  icon: Tv       },
   { to: '/watchlist', label: 'Watchlist', icon: Bookmark },
-  { to: '/discover', label: 'Discover', icon: Compass },
 ]
 
 // Shared nav icon classes — matches the website's icon sidebar style exactly

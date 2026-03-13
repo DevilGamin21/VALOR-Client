@@ -150,7 +150,7 @@ function CollectionsTab({ onPlay }: { onPlay: (item: UnifiedMedia) => void }) {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
           {collections.map((col) => (
             <button
-              key={col.jellyfinCollectionId}
+              key={col.id}
               data-focusable
               onClick={() => openCollection(col)}
               className="group relative rounded-lg overflow-hidden bg-white/5 hover:bg-white/10

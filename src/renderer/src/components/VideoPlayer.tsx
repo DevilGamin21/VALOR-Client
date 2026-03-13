@@ -768,6 +768,10 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     upNextDismissedRef.current = false
     markedPlayedRef.current = false
 
+    // Pause current playback while loading the next episode
+    const v = videoRef.current
+    if (v && !v.paused) v.pause()
+
     setShowEpisodePanel(false)
     setBuffering(true)
     setLocalEpId(ep.jellyfinId)
@@ -1395,7 +1399,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         <X size={18} className="text-white" />
       </button>
 
-      {/* Skip Intro / Skip Credits buttons */}
+      {/* Skip Intro button */}
       {job.introStartSec != null && job.introEndSec != null &&
         currentTime >= job.introStartSec && currentTime < job.introEndSec && (
         <button
@@ -1410,7 +1414,8 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
           Skip Intro
         </button>
       )}
-      {job.creditsStartSec != null && currentTime >= job.creditsStartSec && (
+      {/* Skip Credits — only show when Up Next overlay is NOT visible (avoid duplicate prompts) */}
+      {!upNextVisible && job.creditsStartSec != null && currentTime >= job.creditsStartSec && (
         <button
           onClick={() => {
             if (nextEpisode) {

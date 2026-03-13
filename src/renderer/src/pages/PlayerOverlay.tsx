@@ -769,6 +769,10 @@ export default function PlayerOverlay() {
     setUpNextVisible(false)
     upNextDismissedRef.current = false
     markedPlayedRef.current = false
+
+    // Pause current playback while loading the next episode
+    window.electronAPI.mpv.pause().catch(() => {})
+
     setShowEpisodePanel(false)
     setBuffering(true)
     setTime(0)
@@ -1207,7 +1211,7 @@ export default function PlayerOverlay() {
         onClick={() => window.electronAPI.mpv.togglePause()}
       />
 
-      {/* Skip Intro / Skip Credits buttons */}
+      {/* Skip Intro button */}
       {currentJob?.job.introStartSec != null && currentJob?.job.introEndSec != null &&
         time >= currentJob.job.introStartSec && time < currentJob.job.introEndSec && (
         <button
@@ -1225,7 +1229,8 @@ export default function PlayerOverlay() {
           Skip Intro
         </button>
       )}
-      {currentJob?.job.creditsStartSec != null && time >= currentJob.job.creditsStartSec && (
+      {/* Skip Credits — only show when Up Next overlay is NOT visible (avoid duplicate prompts) */}
+      {!upNextVisible && currentJob?.job.creditsStartSec != null && time >= currentJob.job.creditsStartSec && (
         <button
           onMouseEnter={() => setInteractive(true)}
           onMouseLeave={() => setInteractive(false)}
