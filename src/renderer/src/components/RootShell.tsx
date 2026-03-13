@@ -111,15 +111,21 @@ export default function RootShell() {
               )}
             </button>
 
-            {/* Account switcher popover */}
+            {/* Account switcher popover — fixed z-50 wrapper for gamepad modal detection */}
             {showAccountSwitcher && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowAccountSwitcher(false)} />
-                <div className="absolute left-16 top-2 z-50 bg-[#1a1a1a] border border-white/10 rounded-xl shadow-2xl p-4 min-w-[200px]">
+              <div className="fixed inset-0 z-50">
+                {/* Backdrop — data-modal-close lets gamepad B button close it */}
+                <div
+                  className="absolute inset-0"
+                  data-modal-close
+                  onClick={() => setShowAccountSwitcher(false)}
+                />
+                <div className="absolute left-16 top-10 bg-[#1a1a1a] border border-white/10 rounded-xl shadow-2xl p-4 min-w-[200px]">
                   {/* Account circles */}
                   <div className="flex items-center gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
                     {accounts.map(acct => (
                       <button
+                        data-focusable
                         key={acct.id}
                         onClick={() => { switchAccount(acct.id); setShowAccountSwitcher(false) }}
                         className={`flex-shrink-0 flex flex-col items-center gap-1 transition ${
@@ -143,6 +149,7 @@ export default function RootShell() {
 
                     {/* Add account button */}
                     <button
+                      data-focusable
                       onClick={() => { setShowAccountSwitcher(false); navigate('/login?addAccount=true') }}
                       className="flex-shrink-0 flex flex-col items-center gap-1 opacity-50 hover:opacity-80 transition"
                       title="Add account"
@@ -157,6 +164,7 @@ export default function RootShell() {
                   {/* Profile Settings link */}
                   <div className="mt-2 pt-2 border-t border-white/10">
                     <button
+                      data-focusable
                       onClick={() => { setShowAccountSwitcher(false); navigate('/profile') }}
                       className="w-full text-left text-sm text-white/60 hover:text-white py-1.5 px-1 rounded
                                  hover:bg-white/5 transition flex items-center gap-2"
@@ -166,7 +174,7 @@ export default function RootShell() {
                     </button>
                   </div>
                 </div>
-              </>
+              </div>
             )}
 
             {/* Divider */}
@@ -287,7 +295,7 @@ export default function RootShell() {
 
           {/* Page content */}
           <main ref={mainRef} className="flex-1 overflow-y-auto">
-            <Outlet />
+            <Outlet key={user?.id} />
           </main>
         </div>
       </div>

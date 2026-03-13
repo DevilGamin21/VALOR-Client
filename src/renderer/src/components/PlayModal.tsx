@@ -645,7 +645,7 @@ export default function PlayModal({ item, onClose }: Props) {
                   {movieWatched ? (
                     <><EyeOff size={14} /> Watched</>
                   ) : (
-                    <><Eye size={14} /> Watch</>
+                    <><Eye size={14} /> Mark as watched</>
                   )}
                 </button>
               )}
@@ -969,10 +969,11 @@ export default function PlayModal({ item, onClose }: Props) {
         const isWatched = (menuEp.playedPercentage ?? 0) >= 90
         return (
           <>
-            <div className="fixed inset-0 z-[200]" onClick={() => setActiveMenu(null)} />
+            <div className="fixed inset-0 z-[200]" onClick={(e) => { e.stopPropagation(); setActiveMenu(null) }} />
             <div
               className="fixed w-44 bg-[#222] border border-white/10 rounded-lg shadow-xl z-[201] overflow-hidden"
               style={{ top: activeMenu.top, right: activeMenu.right }}
+              onClick={(e) => e.stopPropagation()}
             >
               <button
                 data-focusable
