@@ -41,6 +41,8 @@ export interface MpvLaunchOptions {
   title?: string
   /** Window handle to embed mpv into (--wid). If omitted, mpv opens its own window. */
   wid?: string
+  /** Extra CLI flags from the backend (e.g. cache/buffer settings for direct play) */
+  extraArgs?: string[]
 }
 
 type MpvEventHandlers = {
@@ -115,6 +117,7 @@ export class MpvPlayer {
 
     if (opts.title) args.push(`--title=${opts.title}`)
     if (opts.startSecs && opts.startSecs > 0) args.push(`--start=${opts.startSecs}`)
+    if (opts.extraArgs?.length) args.push(...opts.extraArgs)
 
     this.proc = spawn(mpvPath, args, { detached: false, stdio: ['ignore', 'pipe', 'pipe'] })
 

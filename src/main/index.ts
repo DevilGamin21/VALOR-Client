@@ -410,9 +410,18 @@ ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
   if (mpvInstance) { mpvInstance.quit(); mpvInstance = null }
   mpvPayload = payload
 
-  const p = payload as { job: { directStreamUrl?: string; hlsUrl: string }; startPositionTicks: number; title: string }
+  const p = payload as { job: { directStreamUrl?: string; hlsUrl: string; mpvOptions?: Record<string, string> }; startPositionTicks: number; title: string }
   const url = p.job.directStreamUrl || p.job.hlsUrl
   console.log('[mpv:launch] url:', url?.slice(0, 120), '| startTicks:', p.startPositionTicks)
+
+  // Convert backend mpvOptions (e.g. { cache: 'yes', 'cache-secs': '30' }) to CLI flags
+  const extraArgs: string[] = []
+  if (p.job.mpvOptions) {
+    for (const [key, val] of Object.entries(p.job.mpvOptions)) {
+      extraArgs.push(`--${key}=${val}`)
+    }
+    console.log('[mpv:launch] extra args:', extraArgs.join(' '))
+  }
 
   if (!url) {
     console.error('[mpv:launch] No URL found in payload — aborting')
@@ -456,6 +465,7 @@ ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
       startSecs: p.startPositionTicks > 0 ? p.startPositionTicks / 10_000_000 : undefined,
       title: p.title,
       wid,
+      extraArgs,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
