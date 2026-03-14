@@ -1103,9 +1103,9 @@ export default function PlayerOverlay() {
       style={{ background: 'transparent' }}
       onMouseMove={() => { showControls(); setInteractive(true) }}
     >
-      {/* Buffering spinner */}
+      {/* Opaque black backdrop while mpv loads — prevents see-through transparency */}
       {buffering && !error && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 bg-black flex items-center justify-center pointer-events-none">
           <div className="w-16 h-16 rounded-full bg-black/40 flex items-center justify-center">
             <Loader2 size={36} className="text-white/80 animate-spin" />
           </div>

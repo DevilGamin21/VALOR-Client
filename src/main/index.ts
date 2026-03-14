@@ -312,7 +312,8 @@ function createPlayerWindow(): void {
   playerWindow = new BrowserWindow({
     width: 1920,
     height: 1080,
-    backgroundColor: '#000000',
+    transparent: true,
+    backgroundColor: '#00000000',
     frame: false,
     show: true,
     skipTaskbar: false,
