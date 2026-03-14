@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session, shell, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, session, shell, nativeImage, screen } from 'electron'
 import { join } from 'path'
 import { exec } from 'child_process'
 import Store from 'electron-store'
@@ -307,11 +307,16 @@ function createPlayerWindow(): void {
   if (playerWindow) { playerWindow.close(); playerWindow = null }
   if (overlayWindow) { overlayWindow.close(); overlayWindow = null }
 
-  // Host window for mpv — opaque black so the user sees a black screen instantly
-  // while mpv loads. mpv renders as a native child window (via --wid) on top.
+  // Open player on the same monitor as the main window
+  const currentDisplay = mainWindow
+    ? screen.getDisplayMatching(mainWindow.getBounds())
+    : screen.getPrimaryDisplay()
+  const { x, y, width, height } = currentDisplay.bounds
+
+  // Host window for mpv — transparent so mpv renders through via --wid.
+  // The overlay provides an opaque black backdrop while buffering.
   playerWindow = new BrowserWindow({
-    width: 1920,
-    height: 1080,
+    x, y, width, height,
     transparent: true,
     backgroundColor: '#00000000',
     frame: false,
@@ -325,8 +330,7 @@ function createPlayerWindow(): void {
   // Transparent overlay — child of playerWindow, so it stays above mpv
   // but doesn't block other apps (no alwaysOnTop needed)
   overlayWindow = new BrowserWindow({
-    width: 1920,
-    height: 1080,
+    x, y, width, height,
     transparent: true,
     frame: false,
     parent: playerWindow,
