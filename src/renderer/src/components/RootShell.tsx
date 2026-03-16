@@ -11,7 +11,6 @@ import {
   LogOut,
   ArrowDownToLine,
   Settings,
-  Boxes,
   Compass,
   Plus,
   User as UserIcon,
@@ -197,28 +196,16 @@ export default function RootShell() {
 
             {/* Admin (admin users only) */}
             {user?.role === 'admin' && (
-              <>
-                <NavLink
-                  data-focusable
-                  to="/admin"
-                  title="Admin"
-                  className={({ isActive }) =>
-                    `${iconBase} ${isActive ? iconActive : iconInactive}`
-                  }
-                >
-                  <Shield className="w-5 h-5 flex-shrink-0" />
-                </NavLink>
-                <NavLink
-                  data-focusable
-                  to="/pruna"
-                  title="Pruna"
-                  className={({ isActive }) =>
-                    `${iconBase} ${isActive ? iconActive : iconInactive}`
-                  }
-                >
-                  <Boxes className="w-5 h-5 flex-shrink-0" />
-                </NavLink>
-              </>
+              <NavLink
+                data-focusable
+                to="/admin"
+                title="Admin"
+                className={({ isActive }) =>
+                  `${iconBase} ${isActive ? iconActive : iconInactive}`
+                }
+              >
+                <Shield className="w-5 h-5 flex-shrink-0" />
+              </NavLink>
             )}
           </div>
 

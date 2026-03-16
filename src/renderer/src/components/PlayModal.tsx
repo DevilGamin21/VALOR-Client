@@ -1,19 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Play, Plus, Check, Loader2, Lock, Wifi, Download, MoreHorizontal, Eye, EyeOff, Star } from 'lucide-react'
+import { X, Play, Plus, Check, Loader2, Lock, Wifi, MoreHorizontal, Eye, EyeOff, Star } from 'lucide-react'
 import * as api from '@/services/api'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useWatchlist } from '@/contexts/WatchlistContext'
 import { useAuth } from '@/contexts/AuthContext'
-import { useSettings, QUALITY_BITRATES } from '@/contexts/SettingsContext'
-import type { UnifiedMedia, Season, Episode, P2PStatus, EpisodeInfo } from '@/types/media'
+import type { UnifiedMedia, PlayJob, Season, Episode, P2PStatus, EpisodeInfo } from '@/types/media'
 
 interface MergedEpisode {
   id: string
   title: string
   episodeNumber: number
   seasonNumber: number
-  onDemand: boolean
   jellyfinId?: string
   playedPercentage?: number
 }
@@ -30,10 +28,22 @@ interface Props {
   onClose: () => void
 }
 
+// Phase display labels for the on-demand stream resolution progress
+const PHASE_LABELS: Record<string, string> = {
+  starting: 'Starting…',
+  resolving: 'Resolving identifiers…',
+  checking_cache: 'Checking Real-Debrid cache…',
+  scraping: 'Searching for torrents…',
+  adding_to_rd: 'Adding to Real-Debrid…',
+  downloading: 'Downloading…',
+  unrestricting: 'Getting stream URL…',
+  preparing: 'Preparing stream…',
+  building: 'Building play session…',
+}
+
 export default function PlayModal({ item, onClose }: Props) {
   const { openPlayer } = usePlayer()
   const { ids, toggle } = useWatchlist()
-  const { directPlay, defaultQuality } = useSettings()
   const { user } = useAuth()
   const isPremium = user?.isPremium || user?.role === 'admin'
   const inWatchlist = ids.has(item.id)
@@ -47,39 +57,46 @@ export default function PlayModal({ item, onClose }: Props) {
   const [loadingPlay, setLoadingPlay] = useState(false)
   const [error, setError] = useState('')
 
-  // Movie watched state (on-demand movies only)
+  // Movie watched state
   const [movieWatched, setMovieWatched] = useState((item.playedPercentage ?? 0) >= 90)
 
-  // Resume prompt (Jellyfin movies only)
+  // Resume prompt (movies)
   const [resumeTicks, setResumeTicks] = useState<number | null>(null)
   const [showResume, setShowResume] = useState(false)
 
   // Resume prompt (TV episodes)
-  const [resumeEp, setResumeEp] = useState<{ jellyfinId: string; ticks: number } | null>(null)
+  const [resumeEp, setResumeEp] = useState<{ episodeNumber: number; seasonNumber: number; ticks: number; jellyfinId?: string } | null>(null)
 
-  // Pruna (content acquisition)
-  const [prunaStatus, setPrunaStatus] = useState<api.PrunaStatus | null>(null)
-  const [prunaLoading, setPrunaLoading] = useState(false)
+  // On-demand stream resolution
+  const [streamId, setStreamId] = useState<string | null>(null)
+  const [streamPhase, setStreamPhase] = useState('')
+  const [streamMessage, setStreamMessage] = useState('')
+  const pendingResumeRef = useRef(0)
+  const pendingEpisodesRef = useRef<EpisodeInfo[]>([])
+  const pendingEpIdRef = useRef<string | undefined>(undefined)
 
-  // Episode context menu — tracked with viewport position so the dropdown
-  // can be rendered fixed (avoids overflow-hidden / overflow-y-auto clipping)
+  // Episode context menu
   const [activeMenu, setActiveMenu] = useState<{ epId: string; top: number; right: number } | null>(null)
 
   // P2P
   const [p2pLoading, setP2pLoading] = useState(false)
   const [p2pStatus, setP2pStatus] = useState<P2PStatus | null>(null)
   const [p2pHash, setP2pHash] = useState<string | null>(null)
-  const [digitalReleased, setDigitalReleased] = useState<boolean | null>(null)
+
+  // Resolved Jellyfin series ID
+  const [resolvedSeriesId, setResolvedSeriesId] = useState<string | null>(null)
+  const [tmdbPosterUrl, setTmdbPosterUrl] = useState<string | null>(null)
 
   // ── Check for resume position (movie only) ──────────────────────────────
   useEffect(() => {
-    if (!item.onDemand || item.type === 'tv') return
+    if (item.type === 'tv') return
+    if (!item.tmdbId) return
     // If the item carries positionTicks (from Continue Watching), show resume prompt
     if (item.positionTicks && item.positionTicks > 0) {
       setResumeTicks(item.positionTicks)
       setShowResume(true)
-    } else {
-      // Otherwise check Jellyfin for saved progress
+    } else if (item.onDemand) {
+      // Check Jellyfin for saved progress
       api.getItemProgress(String(item.id)).then((progress) => {
         if (progress && progress.percent >= 5 && progress.percent < 90) {
           setResumeTicks(progress.positionTicks)
@@ -87,16 +104,13 @@ export default function PlayModal({ item, onClose }: Props) {
         }
       }).catch(() => {})
     }
-    // Fetch TMDB poster for Discord Rich Presence (movies need this too)
-    api.lookupJellyfinItem(String(item.id)).then((lookup) => {
-      if (lookup.posterUrl) setTmdbPosterUrl(lookup.posterUrl)
-    }).catch(() => {})
+    // Fetch TMDB poster for Discord Rich Presence
+    if (item.onDemand) {
+      api.lookupJellyfinItem(String(item.id)).then((lookup) => {
+        if (lookup.posterUrl) setTmdbPosterUrl(lookup.posterUrl)
+      }).catch(() => {})
+    }
   }, [item])
-
-  // Resolved Jellyfin series ID — populated by the lookup below so episodes
-  // can reference the correct ID even when item.id is an episode ID.
-  const [resolvedSeriesId, setResolvedSeriesId] = useState<string | null>(null)
-  const [tmdbPosterUrl, setTmdbPosterUrl] = useState<string | null>(null)
 
   // ── Load seasons for all TV shows ────────────────────────────────────────
   useEffect(() => {
@@ -110,10 +124,9 @@ export default function PlayModal({ item, onClose }: Props) {
     setTmdbPosterUrl(null)
 
     async function loadSeasons() {
-      // Resolve the correct Jellyfin series ID via lookup (matches website behaviour).
-      // For episodes (Continue Watching), this returns the parent series ID.
       let seriesJfId = item.seriesId || String(item.id)
       let tmdbId = item.tmdbId
+
       if (item.onDemand) {
         try {
           const lookup = await api.lookupJellyfinItem(String(item.id))
@@ -121,7 +134,7 @@ export default function PlayModal({ item, onClose }: Props) {
           if (lookup.tmdbId) tmdbId = lookup.tmdbId
           if (lookup.posterUrl) setTmdbPosterUrl(lookup.posterUrl)
         } catch {
-          // best-effort — fall back to item.id
+          // best-effort
         }
       }
       setResolvedSeriesId(seriesJfId)
@@ -148,7 +161,7 @@ export default function PlayModal({ item, onClose }: Props) {
     loadSeasons().finally(() => setLoadingSeasons(false))
   }, [item])
 
-  // ── Load episodes when season or Jellyfin seasons change ─────────────────
+  // ── Load episodes when season changes ─────────────────────────────────────
   useEffect(() => {
     if (item.type !== 'tv' || selectedSeason === null) return
 
@@ -171,30 +184,23 @@ export default function PlayModal({ item, onClose }: Props) {
       ])
 
       if (tmdbEps.length > 0) {
-        // TMDB episodes as base, merged with Jellyfin availability
         const jMap = new Map(jfEps.map((ep) => [ep.episodeNumber, ep.id]))
         const jProgressMap = new Map(jfEps.map((ep) => [ep.episodeNumber, ep.playedPercentage]))
-        return tmdbEps.map((ep): MergedEpisode => {
-          const jId = jMap.get(ep.episodeNumber)
-          return {
-            id: ep.id,
-            title: ep.title,
-            episodeNumber: ep.episodeNumber,
-            seasonNumber: ep.seasonNumber,
-            onDemand: !!jId,
-            jellyfinId: jId,
-            playedPercentage: jProgressMap.get(ep.episodeNumber),
-          }
-        })
+        return tmdbEps.map((ep): MergedEpisode => ({
+          id: ep.id,
+          title: ep.title,
+          episodeNumber: ep.episodeNumber,
+          seasonNumber: ep.seasonNumber,
+          jellyfinId: jMap.get(ep.episodeNumber),
+          playedPercentage: jProgressMap.get(ep.episodeNumber),
+        }))
       }
 
-      // Fallback: Jellyfin-only (no TMDB data)
       return jfEps.map((ep): MergedEpisode => ({
         id: ep.id,
         title: ep.name,
         episodeNumber: ep.episodeNumber,
         seasonNumber: ep.seasonNumber,
-        onDemand: true,
         jellyfinId: ep.id,
         playedPercentage: ep.playedPercentage,
       }))
@@ -206,33 +212,61 @@ export default function PlayModal({ item, onClose }: Props) {
       .finally(() => setLoadingEpisodes(false))
   }, [item, selectedSeason, jellyfinSeasons, resolvedSeriesId])
 
-  // ── Digital release check (non-library movies) ───────────────────────────
+  // ── On-demand stream polling ──────────────────────────────────────────────
   useEffect(() => {
-    if (item.onDemand || item.type !== 'movie' || !item.tmdbId) return
-    api.checkDigitalRelease(item.tmdbId, item.type)
-      .then((r) => setDigitalReleased(r.isReleased))
-      .catch(() => setDigitalReleased(true))
-  }, [item])
+    if (!streamId) return
+    const interval = setInterval(async () => {
+      try {
+        const status = await api.getStreamStatus(streamId)
+        setStreamPhase(status.phase)
+        setStreamMessage(status.message)
 
-  // ── Pruna status load ────────────────────────────────────────────────────
-  useEffect(() => {
-    if (item.onDemand || !item.tmdbId) return
-    api.getPrunaStatus(item.tmdbId, item.type)
-      .then(setPrunaStatus)
-      .catch(() => setPrunaStatus({ installed: false, state: null }))
-  }, [item])
+        if (status.phase === 'ready') {
+          clearInterval(interval)
+          const job: PlayJob = {
+            itemId: status.itemId || status.jellyfinItemId || '',
+            hlsUrl: status.hlsUrl || '',
+            playSessionId: status.playSessionId || null,
+            deviceId: status.deviceId,
+            audioTracks: status.audioTracks || [],
+            subtitleTracks: (status.subtitleTracks || []).map(t => ({
+              ...t,
+              vttUrl: t.vttUrl ?? (t as Record<string, unknown>).url as string | null ?? null,
+            })),
+            title: status.title || item.title,
+            seriesName: status.seriesName,
+            type: status.type || item.type,
+            durationTicks: status.durationTicks,
+            introStartSec: status.introStartSec,
+            introEndSec: status.introEndSec,
+            creditsStartSec: status.creditsStartSec,
+          }
+          job.posterUrl = tmdbPosterUrl
+            || (item.posterUrl?.startsWith('https://image.tmdb.org') ? item.posterUrl : null)
+          job.seriesId = resolvedSeriesId || item.seriesId || undefined
+          job.tmdbId = item.tmdbId
 
-  // ── Pruna status polling (while in pipeline) ──────────────────────────────
-  useEffect(() => {
-    if (!prunaStatus?.state || prunaStatus.installed) return
-    if (!item.tmdbId) return
-    const interval = setInterval(() => {
-      api.getPrunaStatus(item.tmdbId!, item.type)
-        .then(setPrunaStatus)
-        .catch(() => {})
-    }, 5000)
+          openPlayer(job, pendingResumeRef.current, pendingEpisodesRef.current, pendingEpIdRef.current)
+          onClose()
+        } else if (status.phase === 'error') {
+          clearInterval(interval)
+          setError(status.error || status.message || 'Stream resolution failed')
+          setStreamId(null)
+          setStreamPhase('')
+          setStreamMessage('')
+          setLoadingPlay(false)
+        }
+      } catch {
+        clearInterval(interval)
+        setError('Lost connection to stream')
+        setStreamId(null)
+        setStreamPhase('')
+        setStreamMessage('')
+        setLoadingPlay(false)
+      }
+    }, 1500)
     return () => clearInterval(interval)
-  }, [prunaStatus?.state, prunaStatus?.installed, item])
+  }, [streamId, openPlayer, onClose, item, tmdbPosterUrl, resolvedSeriesId])
 
   // ── P2P polling ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -245,8 +279,6 @@ export default function PlayModal({ item, onClose }: Props) {
           clearInterval(interval)
           const job = await api.startPlayJob({
             itemId: status.jellyfinItemId,
-            directPlay,
-            maxBitrate: directPlay ? undefined : QUALITY_BITRATES[defaultQuality],
           })
           openPlayer(job)
           onClose()
@@ -260,76 +292,93 @@ export default function PlayModal({ item, onClose }: Props) {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
-  async function play(jellyfinItemId: string, startTicks = 0) {
+  async function play(startTicks = 0) {
+    if (!item.tmdbId) {
+      setError('Cannot play — missing TMDB ID')
+      return
+    }
     setLoadingPlay(true)
     setError('')
+    pendingResumeRef.current = startTicks
+    pendingEpisodesRef.current = []
+    pendingEpIdRef.current = undefined
     try {
-      const job = await api.startPlayJob({
-        itemId: jellyfinItemId,
-        directPlay,
-        maxBitrate: directPlay ? undefined : QUALITY_BITRATES[defaultQuality],
-        startTimeTicks: startTicks > 0 ? startTicks : undefined,
+      const res = await api.startStream({
+        tmdbId: item.tmdbId,
+        type: item.type,
+        title: item.title,
+        year: item.year ?? undefined,
+        isAnime: item.isAnime,
       })
-      // Prefer TMDB poster (public URL Discord can fetch) over Jellyfin internal URL
-      job.posterUrl = tmdbPosterUrl
-        || (item.posterUrl?.startsWith('https://image.tmdb.org') ? item.posterUrl : null)
-      job.seriesId = resolvedSeriesId || item.seriesId || undefined
-      job.tmdbId = item.tmdbId
-      openPlayer(job, startTicks)
-      onClose()
+      setStreamId(res.streamId)
+      setStreamPhase('starting')
+      setStreamMessage('Starting…')
     } catch (e) {
       setError((e as Error).message)
-    } finally {
       setLoadingPlay(false)
     }
   }
 
-  async function playEpisode(jellyfinId: string, startTicks = 0) {
+  async function playEpisode(ep: MergedEpisode, startTicks = 0) {
+    if (!item.tmdbId) {
+      setError('Cannot play — missing TMDB ID')
+      return
+    }
     setLoadingPlay(true)
     setError('')
+    pendingResumeRef.current = startTicks
+    // Build episode list for player navigation (only episodes with jellyfinId)
+    pendingEpisodesRef.current = episodes
+      .filter((e) => e.jellyfinId)
+      .map((e) => ({
+        jellyfinId: e.jellyfinId!,
+        title: e.title,
+        episodeNumber: e.episodeNumber,
+        seasonNumber: e.seasonNumber,
+        playedPercentage: e.playedPercentage,
+      }))
+    pendingEpIdRef.current = ep.jellyfinId
     try {
-      const job = await api.startPlayJob({
-        itemId: jellyfinId,
-        directPlay,
-        maxBitrate: directPlay ? undefined : QUALITY_BITRATES[defaultQuality],
-        startTimeTicks: startTicks > 0 ? startTicks : undefined,
+      const res = await api.startStream({
+        tmdbId: item.tmdbId,
+        type: 'tv',
+        title: item.title,
+        year: item.year ?? undefined,
+        season: ep.seasonNumber,
+        episode: ep.episodeNumber,
+        isAnime: item.isAnime,
       })
-      job.posterUrl = tmdbPosterUrl
-        || (item.posterUrl?.startsWith('https://image.tmdb.org') ? item.posterUrl : null)
-      job.seriesId = resolvedSeriesId || item.seriesId || undefined
-      job.tmdbId = item.tmdbId
-      const epInfos: EpisodeInfo[] = episodes
-        .filter((ep) => ep.onDemand && ep.jellyfinId)
-        .map((ep) => ({
-          jellyfinId: ep.jellyfinId!,
-          title: ep.title,
-          episodeNumber: ep.episodeNumber,
-          seasonNumber: ep.seasonNumber,
-          playedPercentage: ep.playedPercentage,
-        }))
-      openPlayer(job, startTicks, epInfos, jellyfinId)
-      onClose()
+      setStreamId(res.streamId)
+      setStreamPhase('starting')
+      setStreamMessage('Starting…')
     } catch (e) {
       setError((e as Error).message)
-    } finally {
       setLoadingPlay(false)
     }
   }
 
   async function handleEpisodePlay(ep: MergedEpisode) {
-    if (!ep.jellyfinId) return
-    const pct = ep.playedPercentage ?? 0
-    if (pct >= 5 && pct < 90) {
-      const progress = await api.getItemProgress(ep.jellyfinId).catch(() => null)
-      if (progress) {
-        setResumeEp({ jellyfinId: ep.jellyfinId, ticks: progress.positionTicks })
-        return
+    // Check for resume position if we have a jellyfinId
+    if (ep.jellyfinId) {
+      const pct = ep.playedPercentage ?? 0
+      if (pct >= 5 && pct < 90) {
+        const progress = await api.getItemProgress(ep.jellyfinId).catch(() => null)
+        if (progress) {
+          setResumeEp({
+            episodeNumber: ep.episodeNumber,
+            seasonNumber: ep.seasonNumber,
+            ticks: progress.positionTicks,
+            jellyfinId: ep.jellyfinId,
+          })
+          return
+        }
       }
     }
-    playEpisode(ep.jellyfinId)
+    playEpisode(ep)
   }
 
   async function handleMovieMarkWatched() {
+    if (!item.onDemand) return
     try {
       if (movieWatched) {
         await api.markItemUnplayed(String(item.id))
@@ -361,39 +410,6 @@ export default function PlayModal({ item, onClose }: Props) {
     }
   }
 
-  async function handlePrunaInstall() {
-    if (!item.tmdbId) return
-    setPrunaLoading(true)
-    try {
-      await api.prunaInstall({
-        tmdbId: item.tmdbId,
-        type: item.type,
-        title: item.title,
-        year: item.year,
-        isAnime: item.isAnime,
-      })
-      const status = await api.getPrunaStatus(item.tmdbId, item.type)
-      setPrunaStatus(status)
-    } catch {
-      // ignore — Pruna may not be configured
-    } finally {
-      setPrunaLoading(false)
-    }
-  }
-
-  async function handlePrunaRetry() {
-    if (!prunaStatus?.prunaId) return
-    try {
-      await api.prunaRetryById(prunaStatus.prunaId)
-      if (item.tmdbId) {
-        const status = await api.getPrunaStatus(item.tmdbId, item.type)
-        setPrunaStatus(status)
-      }
-    } catch {
-      // ignore
-    }
-  }
-
   async function startP2P() {
     setP2pLoading(true)
     setError('')
@@ -422,8 +438,8 @@ export default function PlayModal({ item, onClose }: Props) {
 
   // ── Derived display state ─────────────────────────────────────────────────
   const backdrop = item.backdropUrl || item.posterUrl
+  const isStreaming = loadingPlay && !!streamId
 
-  // Season list: prefer TMDB, fall back to Jellyfin shape
   const displaySeasons: DisplaySeason[] = tmdbSeasons.length > 0
     ? tmdbSeasons
     : jellyfinSeasons.map((s) => ({
@@ -433,7 +449,6 @@ export default function PlayModal({ item, onClose }: Props) {
         episodeCount: s.episodeCount,
       }))
 
-  // Show play/P2P action row for movies + non-library TV (library TV uses episode list)
   const showActionRow = item.type === 'movie'
 
   return (
@@ -486,17 +501,11 @@ export default function PlayModal({ item, onClose }: Props) {
               <div className="flex items-center gap-2 mt-1 text-sm text-white/40">
                 {item.year && <span>{item.year}</span>}
                 <span className="uppercase text-xs">{item.type}</span>
-                {item.onDemand && (
-                  item.premiumOnly ? (
-                    <span className="inline-flex items-center gap-1 bg-gradient-to-r from-amber-500 to-yellow-400 text-black text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">
-                      <Star size={9} fill="currentColor" />
-                      Premium
-                    </span>
-                  ) : (
-                    <span className="bg-white text-black text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">
-                      Library
-                    </span>
-                  )
+                {item.premiumOnly && (
+                  <span className="inline-flex items-center gap-1 bg-gradient-to-r from-amber-500 to-yellow-400 text-black text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">
+                    <Star size={9} fill="currentColor" />
+                    Premium
+                  </span>
                 )}
               </div>
               <p className="mt-2 text-sm text-white/60 line-clamp-3">{item.overview}</p>
@@ -510,9 +519,41 @@ export default function PlayModal({ item, onClose }: Props) {
             </p>
           )}
 
-          {/* Resume prompt (Jellyfin movies) */}
+          {/* Stream resolution progress */}
+          {isStreaming && (
+            <div className="mb-4 p-3 rounded-lg bg-blue-900/20 border border-blue-700/30">
+              <div className="flex items-center gap-3">
+                <Loader2 size={16} className="animate-spin text-blue-400 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-blue-300">
+                    {PHASE_LABELS[streamPhase] || streamMessage || 'Preparing…'}
+                  </p>
+                  {streamPhase === 'downloading' && streamMessage && (
+                    <p className="text-xs text-blue-300/60 mt-0.5">{streamMessage}</p>
+                  )}
+                </div>
+              </div>
+              {/* Phase dots */}
+              <div className="flex gap-1.5 mt-2.5">
+                {Object.keys(PHASE_LABELS).map((phase) => (
+                  <div
+                    key={phase}
+                    className={`h-1 flex-1 rounded-full transition-colors duration-300 ${
+                      phase === streamPhase
+                        ? 'bg-blue-400'
+                        : Object.keys(PHASE_LABELS).indexOf(phase) < Object.keys(PHASE_LABELS).indexOf(streamPhase)
+                          ? 'bg-blue-500/40'
+                          : 'bg-white/10'
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Resume prompt (movies) */}
           <AnimatePresence>
-            {showResume && resumeTicks !== null && item.type === 'movie' && !(item.premiumOnly && !isPremium) && (
+            {showResume && resumeTicks !== null && item.type === 'movie' && !(item.premiumOnly && !isPremium) && !isStreaming && (
               <motion.div
                 initial={{ opacity: 0, y: -8 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -521,14 +562,14 @@ export default function PlayModal({ item, onClose }: Props) {
               >
                 <button
                   data-focusable
-                  onClick={() => { setShowResume(false); play(String(item.id), resumeTicks!) }}
+                  onClick={() => { setShowResume(false); play(resumeTicks!) }}
                   className="flex-1 py-2.5 rounded-lg bg-white text-black font-semibold text-sm hover:bg-white/90 transition"
                 >
                   Continue from {formatTicks(resumeTicks)}
                 </button>
                 <button
                   data-focusable
-                  onClick={() => { setShowResume(false); play(String(item.id), 0) }}
+                  onClick={() => { setShowResume(false); play(0) }}
                   className="flex-1 py-2.5 rounded-lg bg-white/10 text-white text-sm hover:bg-white/15 transition"
                 >
                   Start from Beginning
@@ -537,87 +578,42 @@ export default function PlayModal({ item, onClose }: Props) {
             )}
           </AnimatePresence>
 
-          {/* Action row: movies + non-library TV */}
-          {showActionRow && !showResume && (
+          {/* Action row: movies */}
+          {showActionRow && !showResume && !isStreaming && (
             <div className="flex gap-2 mb-4">
-              {item.onDemand ? (
-                item.premiumOnly && !isPremium ? (
-                  /* Premium-only — user is not premium */
-                  <div className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
-                                  bg-gradient-to-r from-amber-900/30 to-yellow-900/20 border border-amber-600/30
-                                  text-amber-300/70 text-sm cursor-not-allowed">
-                    <Lock size={14} />
-                    Premium Only
-                  </div>
-                ) : (
-                  /* Jellyfin movie — direct play */
-                  <button
-                    data-focusable
-                    onClick={() => play(String(item.id))}
-                    disabled={loadingPlay}
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
-                               bg-red-600 hover:bg-red-500 text-white font-semibold text-sm transition disabled:opacity-50"
-                  >
-                    {loadingPlay ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} fill="white" />}
-                    Play
-                  </button>
-                )
+              {item.premiumOnly && !isPremium ? (
+                <div className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
+                                bg-gradient-to-r from-amber-900/30 to-yellow-900/20 border border-amber-600/30
+                                text-amber-300/70 text-sm cursor-not-allowed">
+                  <Lock size={14} />
+                  Premium Only
+                </div>
               ) : (
-                <>
-                  {item.type === 'movie' ? (
-                    /* Non-library movie: check digital release */
-                    <>
-                      {digitalReleased === null && (
-                        <div className="flex-1 flex items-center justify-center py-2.5">
-                          <Loader2 size={16} className="animate-spin text-white/30" />
-                        </div>
-                      )}
-                      {digitalReleased === true && !p2pHash && (
-                        <button
-                          data-focusable
-                          onClick={startP2P}
-                          disabled={p2pLoading}
-                          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
-                                     bg-purple-700 hover:bg-purple-600 text-white font-semibold text-sm transition disabled:opacity-50"
-                        >
-                          {p2pLoading ? <Loader2 size={16} className="animate-spin" /> : <Wifi size={16} />}
-                          Stream (P2P)
-                        </button>
-                      )}
-                      {digitalReleased === false && (
-                        <div className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
-                                        bg-white/5 text-white/40 text-sm cursor-not-allowed">
-                          <Lock size={14} />
-                          Awaiting Release
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    /* Non-library TV show: P2P at series level */
-                    !p2pHash && (
-                      <button
-                        data-focusable
-                        onClick={startP2P}
-                        disabled={p2pLoading}
-                        className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
-                                   bg-purple-700 hover:bg-purple-600 text-white font-semibold text-sm transition disabled:opacity-50"
-                      >
-                        {p2pLoading ? <Loader2 size={16} className="animate-spin" /> : <Wifi size={16} />}
-                        Stream (P2P)
-                      </button>
-                    )
-                  )}
+                <button
+                  data-focusable
+                  onClick={() => play()}
+                  disabled={loadingPlay}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
+                             bg-red-600 hover:bg-red-500 text-white font-semibold text-sm transition disabled:opacity-50"
+                >
+                  {loadingPlay ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} fill="white" />}
+                  Play
+                </button>
+              )}
 
-                  <button
-                    data-focusable
-                    onClick={() => item.tmdbId && api.requestMedia({ title: item.title, tmdbId: item.tmdbId, type: item.type })}
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
-                               bg-white/10 hover:bg-white/15 text-white text-sm transition"
-                  >
-                    <Plus size={16} />
-                    Request
-                  </button>
-                </>
+              {/* P2P fallback */}
+              {!p2pHash && !loadingPlay && (
+                <button
+                  data-focusable
+                  onClick={startP2P}
+                  disabled={p2pLoading}
+                  title="Stream via P2P (WebTorrent)"
+                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg
+                             bg-white/10 hover:bg-white/15 text-white/60 text-sm transition disabled:opacity-50"
+                >
+                  {p2pLoading ? <Loader2 size={14} className="animate-spin" /> : <Wifi size={14} />}
+                  P2P
+                </button>
               )}
 
               <button
@@ -652,89 +648,6 @@ export default function PlayModal({ item, onClose }: Props) {
             </div>
           )}
 
-          {/* Pruna section (non-library items only) */}
-          {!item.onDemand && item.tmdbId && (() => {
-            const state = prunaStatus?.state?.toLowerCase() ?? null
-            const inPipeline = state !== null
-
-            // Derive label, colour scheme, and whether retry makes sense
-            let label = ''
-            let color: 'green' | 'blue' | 'amber' | 'red' = 'blue'
-            let showRetry = false
-
-            if (inPipeline) {
-              if (state === 'completed') {
-                label = 'Installed'
-                color = 'green'
-              } else if (state === 'requested' || state === 'indexed') {
-                label = 'Queued'
-                color = 'blue'
-              } else if (state === 'scraped' || state === 'downloaded' || state === 'symlinked') {
-                label = 'In Progress'
-                color = 'blue'
-              } else if (state === 'failed') {
-                label = prunaStatus.error ? `Failed — ${prunaStatus.error}` : 'Failed'
-                color = 'red'
-                showRetry = true
-              } else if (state === 'paused') {
-                label = 'Paused'
-                color = 'amber'
-                showRetry = true
-              } else {
-                label = state ? state.charAt(0).toUpperCase() + state.slice(1) : 'Processing'
-                color = 'blue'
-              }
-            }
-
-            const colorMap = {
-              green: { bg: 'bg-green-900/20', border: 'border-green-700/30', text: 'text-green-400', icon: 'text-green-400' },
-              blue:  { bg: 'bg-blue-900/20',  border: 'border-blue-700/30',  text: 'text-blue-300',  icon: 'text-blue-400'  },
-              amber: { bg: 'bg-amber-900/20', border: 'border-amber-700/30', text: 'text-amber-300', icon: 'text-amber-400' },
-              red:   { bg: 'bg-red-900/20',   border: 'border-red-700/30',   text: 'text-red-400',   icon: 'text-red-400'   },
-            }
-            const c = colorMap[color]
-
-            return (
-              <div className="mb-4">
-                {inPipeline ? (
-                  <div className={`flex items-center gap-3 p-3 rounded-lg ${c.bg} border ${c.border}`}>
-                    <Download size={14} className={`${c.icon} flex-shrink-0`} />
-                    <p className={`flex-1 text-sm font-medium ${c.text}`}>
-                      {label}{color !== 'green' && color !== 'red' && '…'}
-                    </p>
-                    {showRetry && (
-                      <button
-                        data-focusable
-                        onClick={handlePrunaRetry}
-                        className="text-xs text-white/50 hover:text-white px-2 py-1 rounded bg-white/10 transition flex-shrink-0"
-                      >
-                        Retry
-                      </button>
-                    )}
-                  </div>
-                ) : isPremium ? (
-                  <button
-                    data-focusable
-                    onClick={handlePrunaInstall}
-                    disabled={prunaLoading}
-                    className="w-full flex items-center justify-center gap-2 py-2 rounded-lg
-                               bg-emerald-800/30 hover:bg-emerald-800/50 border border-emerald-600/30
-                               text-emerald-300 text-sm transition disabled:opacity-50"
-                  >
-                    {prunaLoading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                    Install
-                  </button>
-                ) : (
-                  <div className="flex items-center justify-center gap-2 py-2 rounded-lg
-                                  bg-white/5 border border-white/10 text-white/30 text-sm cursor-not-allowed">
-                    <Lock size={14} />
-                    Premium Required
-                  </div>
-                )}
-              </div>
-            )
-          })()}
-
           {/* P2P progress */}
           {p2pHash && p2pStatus && (
             <div className="mb-4 p-3 rounded-lg bg-purple-900/20 border border-purple-700/30">
@@ -756,36 +669,9 @@ export default function PlayModal({ item, onClose }: Props) {
             </div>
           )}
 
-          {/* TV: seasons + episodes (all TV shows) */}
+          {/* TV: seasons + episodes */}
           {item.type === 'tv' && (
             <div>
-              {/* Non-library TV: stream + request buttons (hidden for locally available shows) */}
-              {!item.onDemand && !showResume && (
-                <div className="flex gap-2 mb-4">
-                  {!p2pHash && (
-                    <button
-                      data-focusable
-                      onClick={startP2P}
-                      disabled={p2pLoading}
-                      className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
-                                 bg-purple-700 hover:bg-purple-600 text-white font-semibold text-sm transition disabled:opacity-50"
-                    >
-                      {p2pLoading ? <Loader2 size={16} className="animate-spin" /> : <Wifi size={16} />}
-                      Stream (P2P)
-                    </button>
-                  )}
-                  <button
-                    data-focusable
-                    onClick={() => item.tmdbId && api.requestMedia({ title: item.title, tmdbId: item.tmdbId, type: item.type })}
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
-                               bg-white/10 hover:bg-white/15 text-white text-sm transition"
-                  >
-                    <Plus size={16} />
-                    Request
-                  </button>
-                </div>
-              )}
-
               {/* Seasons row: watchlist button + season tabs */}
               <div className="flex items-center gap-2 mb-4">
                 <button
@@ -827,7 +713,6 @@ export default function PlayModal({ item, onClose }: Props) {
                 </div>
               ) : displaySeasons.length > 0 ? (
                 <>
-
                   {/* Episode list */}
                   {loadingEpisodes ? (
                     <div className="flex justify-center py-8">
@@ -837,7 +722,7 @@ export default function PlayModal({ item, onClose }: Props) {
                     <>
                       {/* Episode resume prompt */}
                       <AnimatePresence>
-                        {resumeEp && (
+                        {resumeEp && !isStreaming && (
                           <motion.div
                             initial={{ opacity: 0, y: -8 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -846,14 +731,28 @@ export default function PlayModal({ item, onClose }: Props) {
                           >
                             <button
                               data-focusable
-                              onClick={() => { const ep = resumeEp; setResumeEp(null); playEpisode(ep.jellyfinId, ep.ticks) }}
+                              onClick={() => {
+                                const ep = resumeEp
+                                setResumeEp(null)
+                                const merged = episodes.find(
+                                  (e) => e.episodeNumber === ep.episodeNumber && e.seasonNumber === ep.seasonNumber
+                                )
+                                if (merged) playEpisode(merged, ep.ticks)
+                              }}
                               className="flex-1 py-2 rounded-lg bg-white text-black font-semibold text-sm hover:bg-white/90 transition"
                             >
                               Continue from {formatTicks(resumeEp.ticks)}
                             </button>
                             <button
                               data-focusable
-                              onClick={() => { const ep = resumeEp; setResumeEp(null); playEpisode(ep.jellyfinId, 0) }}
+                              onClick={() => {
+                                const ep = resumeEp
+                                setResumeEp(null)
+                                const merged = episodes.find(
+                                  (e) => e.episodeNumber === ep.episodeNumber && e.seasonNumber === ep.seasonNumber
+                                )
+                                if (merged) playEpisode(merged, 0)
+                              }}
                               className="flex-1 py-2 rounded-lg bg-white/10 text-white text-sm hover:bg-white/15 transition"
                             >
                               Start from Beginning
@@ -874,7 +773,7 @@ export default function PlayModal({ item, onClose }: Props) {
                           const pct = ep.playedPercentage ?? 0
                           const isWatched = pct >= 90
                           const hasProgress = pct >= 5 && pct < 90
-                          const isPlayable = ep.onDemand && ep.jellyfinId && !(item.premiumOnly && !isPremium)
+                          const isPlayable = item.tmdbId && !(item.premiumOnly && !isPremium)
                           return (
                             <div
                               key={ep.id}
@@ -900,10 +799,9 @@ export default function PlayModal({ item, onClose }: Props) {
 
                               {/* Title + status */}
                               <div className="flex-1 min-w-0">
-                                <p className={`text-sm font-medium truncate leading-snug ${ep.onDemand ? 'text-white/90' : 'text-white/30'}`}>
+                                <p className={`text-sm font-medium truncate leading-snug ${isPlayable ? 'text-white/90' : 'text-white/30'}`}>
                                   {ep.title}
                                 </p>
-                                {/* Progress bar */}
                                 {hasProgress && (
                                   <div className="mt-2 h-1 w-full max-w-[140px] bg-white/10 rounded-full overflow-hidden">
                                     <div className="h-full bg-red-500 rounded-full" style={{ width: `${pct}%` }} />
@@ -918,10 +816,7 @@ export default function PlayModal({ item, onClose }: Props) {
                                   Watched
                                 </span>
                               )}
-                              {!ep.onDemand && (
-                                <Lock size={11} className="flex-shrink-0 text-white/15" />
-                              )}
-                              {item.premiumOnly && !isPremium && ep.onDemand && (
+                              {item.premiumOnly && !isPremium && (
                                 <Lock size={11} className="flex-shrink-0 text-amber-400/40" />
                               )}
 

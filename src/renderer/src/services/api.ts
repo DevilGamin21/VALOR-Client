@@ -416,33 +416,6 @@ export async function getPlaybackStats(days = 30): Promise<PlaybackStats> {
   return request(`/admin/playback-stats?days=${days}`)
 }
 
-export interface SymlinkHealthResult {
-  total: number
-  healthy: number
-  broken: number
-  brokenItems: Array<{
-    title: string
-    path: string
-    type: string
-    refetchStatus?: string
-  }>
-  lastChecked?: string
-}
-
-export async function getSymlinkHealth(): Promise<SymlinkHealthResult> {
-  return request('/admin/symlink-health')
-}
-
-export async function runSymlinkHealth(opts: {
-  deepCheck?: boolean
-  autoRefetch?: boolean
-} = {}): Promise<SymlinkHealthResult> {
-  return request('/admin/symlink-health', {
-    method: 'POST',
-    body: JSON.stringify(opts)
-  })
-}
-
 // ─── Subtitles ────────────────────────────────────────────────────────────────
 
 export interface OsSubtitleResult {
@@ -562,39 +535,53 @@ export async function getHomeCategories(): Promise<HomeCategories> {
   }
 }
 
-// ─── Pruna (content acquisition) ──────────────────────────────────────────────
+// ─── On-demand streaming ──────────────────────────────────────────────────────
 
-export interface PrunaStatus {
-  /** True only when state === 'Completed' (item fully installed in library) */
-  installed: boolean
-  /** Pipeline state label, or null if item not in Pruna at all */
-  state: string | null
-  prunaId?: string | null
+export interface StreamPlayRequest {
+  tmdbId: number
+  type: 'movie' | 'tv'
+  title: string
+  year?: number
+  season?: number
+  episode?: number
+  imdbId?: string
+  isAnime?: boolean
+}
+
+export interface StreamStatus {
+  success: boolean
+  streamId: string
+  phase: string
+  message: string
+  // PlayJob fields present when phase === 'ready'
+  jellyfinItemId?: string
+  itemId?: string
+  hlsUrl?: string
+  playSessionId?: string
+  deviceId?: string
+  audioTracks?: AudioTrack[]
+  subtitleTracks?: SubtitleTrack[]
+  sourceVideoWidth?: number
+  sourceVideoHeight?: number
   title?: string
-  progress?: number
-  error?: string | null
-  episodes?: number
+  seriesName?: string
+  type?: string
+  durationTicks?: number
+  creditsStartSec?: number | null
+  introStartSec?: number | null
+  introEndSec?: number | null
+  error?: string
 }
 
-export async function getPrunaStatus(tmdbId: number, type: 'movie' | 'tv'): Promise<PrunaStatus> {
-  return request(`/pruna/status?tmdbId=${tmdbId}&type=${type}`)
+export async function startStream(body: StreamPlayRequest): Promise<{ streamId: string }> {
+  return request('/stream/play', { method: 'POST', body: JSON.stringify(body) })
 }
 
-export async function prunaInstall(body: {
-  tmdbId: number; type: 'movie' | 'tv'; title: string; year?: number | null; isAnime?: boolean
-}): Promise<{ success: boolean; prunaId: string; state: string }> {
-  return request('/pruna/install', { method: 'POST', body: JSON.stringify(body) })
+export async function getStreamStatus(streamId: string): Promise<StreamStatus> {
+  return request(`/stream/play/${encodeURIComponent(streamId)}`)
 }
 
-export async function prunaRetryByImdb(imdbId: string): Promise<void> {
-  return request('/pruna/retry', { method: 'POST', body: JSON.stringify({ imdbId }) })
-}
-
-export async function prunaRetryById(prunaId: string): Promise<void> {
-  return request('/pruna/retry', { method: 'POST', body: JSON.stringify({ prunaId }) })
-}
-
-// ─── Admin: tier management + library scan ────────────────────────────────────
+// ─── Admin: tier management ───────────────────────────────────────────────────
 
 export type UserTier = 'trial' | 'subscription' | 'lifetime' | 'free'
 
@@ -611,111 +598,4 @@ export async function patchUserTier(id: string, tier: UserTier, subscriptionExpi
 
 export async function syncUserAccess(id: string): Promise<void> {
   return request(`/admin/users/${id}/sync-access`, { method: 'POST' })
-}
-
-export async function scanLibrary(): Promise<void> {
-  return request('/jellyfin/scan-library', { method: 'POST' })
-}
-
-// ─── Ombi requests ────────────────────────────────────────────────────────────
-
-export async function requestMedia(item: {
-  title: string
-  tmdbId?: number
-  type: 'movie' | 'tv'
-}): Promise<void> {
-  return request('/request', { method: 'POST', body: JSON.stringify(item) })
-}
-
-// ─── Pruna ────────────────────────────────────────────────────────────────────
-
-export async function getPrunaDashboard(): Promise<Record<string, unknown>> {
-  return request('/pruna/dashboard')
-}
-
-export async function prunaRetry(prunaId: string): Promise<void> {
-  return request('/pruna/dashboard/retry', { method: 'POST', body: JSON.stringify({ prunaId }) })
-}
-
-export async function prunaRemove(prunaId: string): Promise<void> {
-  return request(`/pruna/dashboard/item/${encodeURIComponent(prunaId)}`, { method: 'DELETE' })
-}
-
-export async function getPrunaQueue(): Promise<Record<string, unknown>> {
-  return request('/pruna/queue')
-}
-
-export async function prunaPromote(prunaId: string): Promise<void> {
-  return request('/pruna/queue/promote', { method: 'POST', body: JSON.stringify({ prunaId }) })
-}
-
-export async function prunaQueueConfig(maxActive: number): Promise<void> {
-  return request('/pruna/queue/config', { method: 'POST', body: JSON.stringify({ maxActive }) })
-}
-
-export async function getPrunaLibrary(): Promise<Record<string, unknown>> {
-  return request('/pruna/library')
-}
-
-export async function prunaDeleteLibraryItem(itemId: string): Promise<void> {
-  return request(`/pruna/library/${encodeURIComponent(itemId)}`, { method: 'DELETE' })
-}
-
-export async function getPrunaLibraryEpisodes(itemId: string, tmdbId?: number): Promise<Record<string, unknown>> {
-  const qs = tmdbId ? `?tmdbId=${tmdbId}` : ''
-  return request(`/pruna/library/${encodeURIComponent(itemId)}/episodes${qs}`)
-}
-
-export async function prunaSearchEpisodes(itemId: string, body: Record<string, unknown>): Promise<void> {
-  return request(`/pruna/library/${encodeURIComponent(itemId)}/episodes`, {
-    method: 'POST', body: JSON.stringify(body)
-  })
-}
-
-export async function prunaSearchTorrents(itemId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return request(`/pruna/library/${encodeURIComponent(itemId)}/episodes/torrents`, {
-    method: 'POST', body: JSON.stringify(body)
-  })
-}
-
-export async function prunaInstallMagnet(itemId: string, body: Record<string, unknown>): Promise<void> {
-  return request(`/pruna/library/${encodeURIComponent(itemId)}/episodes/install-magnet`, {
-    method: 'POST', body: JSON.stringify(body)
-  })
-}
-
-export async function prunaDeleteEpisode(itemId: string, epKey: string): Promise<void> {
-  return request(`/pruna/library/${encodeURIComponent(itemId)}/episode/${encodeURIComponent(epKey)}`, { method: 'DELETE' })
-}
-
-export async function prunaRefetchEpisode(itemId: string, epKey: string, mode: string): Promise<void> {
-  return request(`/pruna/library/${encodeURIComponent(itemId)}/episode/${encodeURIComponent(epKey)}`, {
-    method: 'POST', body: JSON.stringify({ mode })
-  })
-}
-
-export async function getPrunaOngoing(): Promise<Record<string, unknown>> {
-  return request('/pruna/ongoing')
-}
-
-export async function prunaTrackOngoing(body: Record<string, unknown>): Promise<void> {
-  return request('/pruna/ongoing', { method: 'POST', body: JSON.stringify(body) })
-}
-
-export async function prunaRemoveOngoing(imdbId: string): Promise<void> {
-  return request(`/pruna/ongoing/${encodeURIComponent(imdbId)}`, { method: 'DELETE' })
-}
-
-export async function prunaToggleOngoing(imdbId: string, enabled: boolean): Promise<void> {
-  return request(`/pruna/ongoing/${encodeURIComponent(imdbId)}`, {
-    method: 'PATCH', body: JSON.stringify({ enabled })
-  })
-}
-
-export async function prunaCheckOngoing(): Promise<void> {
-  return request('/pruna/ongoing/check', { method: 'POST' })
-}
-
-export async function prunaClearFailed(): Promise<void> {
-  return request('/pruna/dashboard/clear-failed', { method: 'POST' })
 }
