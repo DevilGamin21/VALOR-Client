@@ -96,7 +96,7 @@ export default function PlayModal({ item, onClose }: Props) {
       setResumeTicks(item.positionTicks)
       setShowResume(true)
     } else if (item.onDemand) {
-      // Check Jellyfin for saved progress
+      // Check Jellyfin for saved progress (only possible if item has a Jellyfin ID)
       api.getItemProgress(String(item.id)).then((progress) => {
         if (progress && progress.percent >= 5 && progress.percent < 90) {
           setResumeTicks(progress.positionTicks)
@@ -104,11 +104,14 @@ export default function PlayModal({ item, onClose }: Props) {
         }
       }).catch(() => {})
     }
-    // Fetch TMDB poster for Discord Rich Presence
+    // Fetch TMDB poster for Discord Rich Presence (only if item came from Jellyfin)
     if (item.onDemand) {
       api.lookupJellyfinItem(String(item.id)).then((lookup) => {
         if (lookup.posterUrl) setTmdbPosterUrl(lookup.posterUrl)
       }).catch(() => {})
+    } else if (item.posterUrl?.startsWith('https://image.tmdb.org')) {
+      // TMDB-sourced items already have a public poster URL
+      setTmdbPosterUrl(item.posterUrl)
     }
   }, [item])
 
@@ -127,6 +130,7 @@ export default function PlayModal({ item, onClose }: Props) {
       let seriesJfId = item.seriesId || String(item.id)
       let tmdbId = item.tmdbId
 
+      // If item came from Jellyfin (Continue Watching), resolve the series-level info
       if (item.onDemand) {
         try {
           const lookup = await api.lookupJellyfinItem(String(item.id))
@@ -136,6 +140,8 @@ export default function PlayModal({ item, onClose }: Props) {
         } catch {
           // best-effort
         }
+      } else if (item.posterUrl?.startsWith('https://image.tmdb.org')) {
+        setTmdbPosterUrl(item.posterUrl)
       }
       setResolvedSeriesId(seriesJfId)
 
@@ -143,6 +149,7 @@ export default function PlayModal({ item, onClose }: Props) {
         tmdbId
           ? api.getTmdbSeasons(tmdbId).catch(() => [] as api.TmdbSeason[])
           : Promise.resolve([] as api.TmdbSeason[]),
+        // Fetch Jellyfin seasons for progress data (best-effort, won't exist for fresh TMDB items)
         item.onDemand
           ? api.getSeasons(seriesJfId).catch(() => [] as Season[])
           : Promise.resolve([] as Season[]),
@@ -174,8 +181,9 @@ export default function PlayModal({ item, onClose }: Props) {
         item.tmdbId
           ? api.getTmdbEpisodes(item.tmdbId!, selectedSeason!).catch(() => [] as api.TmdbEpisode[])
           : Promise.resolve([] as api.TmdbEpisode[]),
+        // Fetch Jellyfin episodes for progress data (best-effort)
         (() => {
-          if (!item.onDemand || !jellyfinSeasons.length) return Promise.resolve([] as Episode[])
+          if (!jellyfinSeasons.length) return Promise.resolve([] as Episode[])
           const jSeason = jellyfinSeasons.find((s) => s.seasonNumber === selectedSeason)
           if (!jSeason) return Promise.resolve([] as Episode[])
           const epSeriesId = resolvedSeriesId || item.seriesId || String(item.id)
