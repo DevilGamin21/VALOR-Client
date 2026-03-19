@@ -500,6 +500,7 @@ export interface TmdbEpisode {
   title: string
   episodeNumber: number
   seasonNumber: number
+  airDate: string | null
 }
 
 export async function getTmdbSeasons(tmdbId: number): Promise<TmdbSeason[]> {

@@ -14,6 +14,7 @@ interface MergedEpisode {
   seasonNumber: number
   jellyfinId?: string
   playedPercentage?: number
+  airDate: string | null
 }
 
 interface DisplaySeason {
@@ -78,6 +79,10 @@ export default function PlayModal({ item, onClose }: Props) {
   // Episode context menu
   const [activeMenu, setActiveMenu] = useState<{ epId: string; top: number; right: number } | null>(null)
 
+  // Digital release check
+  const [digitalRelease, setDigitalRelease] = useState<{ isReleased: boolean; releaseDate?: string } | null>(null)
+  const [digitalReleaseLoading, setDigitalReleaseLoading] = useState(false)
+
   // P2P
   const [p2pLoading, setP2pLoading] = useState(false)
   const [p2pStatus, setP2pStatus] = useState<P2PStatus | null>(null)
@@ -113,6 +118,18 @@ export default function PlayModal({ item, onClose }: Props) {
       // TMDB-sourced items already have a public poster URL
       setTmdbPosterUrl(item.posterUrl)
     }
+  }, [item])
+
+  // ── Digital release check (movies only — TV checked per-episode via airDate) ─
+  useEffect(() => {
+    if (item.type !== 'movie' || !item.tmdbId) return
+    // Items already in Jellyfin library are always playable
+    if (item.onDemand) { setDigitalRelease({ isReleased: true }); return }
+    setDigitalReleaseLoading(true)
+    api.checkDigitalRelease(item.tmdbId, 'movie')
+      .then(setDigitalRelease)
+      .catch(() => setDigitalRelease({ isReleased: true })) // fail-open
+      .finally(() => setDigitalReleaseLoading(false))
   }, [item])
 
   // ── Load seasons for all TV shows ────────────────────────────────────────
@@ -201,6 +218,7 @@ export default function PlayModal({ item, onClose }: Props) {
           seasonNumber: ep.seasonNumber,
           jellyfinId: jMap.get(ep.episodeNumber),
           playedPercentage: jProgressMap.get(ep.episodeNumber),
+          airDate: ep.airDate,
         }))
       }
 
@@ -211,6 +229,7 @@ export default function PlayModal({ item, onClose }: Props) {
         seasonNumber: ep.seasonNumber,
         jellyfinId: ep.id,
         playedPercentage: ep.playedPercentage,
+        airDate: null,
       }))
     }
 
@@ -305,6 +324,7 @@ export default function PlayModal({ item, onClose }: Props) {
       setError('Cannot play — missing TMDB ID')
       return
     }
+    if (item.type === 'movie' && !item.onDemand && digitalRelease?.isReleased !== true) return
     setLoadingPlay(true)
     setError('')
     pendingResumeRef.current = startTicks
@@ -448,16 +468,31 @@ export default function PlayModal({ item, onClose }: Props) {
   const backdrop = item.backdropUrl || item.posterUrl
   const isStreaming = loadingPlay && !!streamId
 
-  const displaySeasons: DisplaySeason[] = tmdbSeasons.length > 0
-    ? tmdbSeasons
-    : jellyfinSeasons.map((s) => ({
+  // Merge TMDB + Jellyfin seasons — TMDB is primary, Jellyfin fills gaps
+  const displaySeasons: DisplaySeason[] = (() => {
+    if (tmdbSeasons.length === 0) {
+      return jellyfinSeasons.map((s) => ({
         seasonNumber: s.seasonNumber,
         title: s.name,
         key: s.id,
         episodeCount: s.episodeCount,
       }))
+    }
+    const tmdbNums = new Set(tmdbSeasons.map((s) => s.seasonNumber))
+    const jfExtra = jellyfinSeasons
+      .filter((s) => !tmdbNums.has(s.seasonNumber))
+      .map((s): DisplaySeason => ({
+        seasonNumber: s.seasonNumber,
+        title: s.name,
+        key: s.id,
+        episodeCount: s.episodeCount,
+      }))
+    return [...tmdbSeasons, ...jfExtra].sort((a, b) => a.seasonNumber - b.seasonNumber)
+  })()
 
   const showActionRow = item.type === 'movie'
+  // Movie is released only when the check explicitly confirms it (not during loading/null state)
+  const isMovieReleased = item.type !== 'movie' || item.onDemand || digitalRelease?.isReleased === true
 
   return (
     <motion.div
@@ -596,6 +631,18 @@ export default function PlayModal({ item, onClose }: Props) {
                   <Lock size={14} />
                   Premium Only
                 </div>
+              ) : digitalReleaseLoading || (!item.onDemand && item.type === 'movie' && !digitalRelease) ? (
+                <div className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
+                                bg-white/5 text-white/30 text-sm">
+                  <Loader2 size={14} className="animate-spin" />
+                  Checking release…
+                </div>
+              ) : !isMovieReleased ? (
+                <div className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
+                                bg-white/5 border border-white/10 text-white/30 text-sm cursor-not-allowed">
+                  <Lock size={14} />
+                  Awaiting Release
+                </div>
               ) : (
                 <button
                   data-focusable
@@ -610,7 +657,7 @@ export default function PlayModal({ item, onClose }: Props) {
               )}
 
               {/* P2P fallback */}
-              {!p2pHash && !loadingPlay && (
+              {!p2pHash && !loadingPlay && isMovieReleased && (
                 <button
                   data-focusable
                   onClick={startP2P}
@@ -654,6 +701,13 @@ export default function PlayModal({ item, onClose }: Props) {
                 </button>
               )}
             </div>
+          )}
+
+          {/* Release date hint for unreleased movies */}
+          {showActionRow && !isMovieReleased && digitalRelease?.releaseDate && (
+            <p className="text-xs text-white/30 mb-4 -mt-2">
+              Expected digital release: {new Date(digitalRelease.releaseDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </p>
           )}
 
           {/* P2P progress */}
@@ -781,7 +835,9 @@ export default function PlayModal({ item, onClose }: Props) {
                           const pct = ep.playedPercentage ?? 0
                           const isWatched = pct >= 90
                           const hasProgress = pct >= 5 && pct < 90
-                          const isPlayable = item.tmdbId && !(item.premiumOnly && !isPremium)
+                          // Episode is released if: no airDate (fail-open), or airDate <= today
+                          const isEpReleased = !ep.airDate || new Date(ep.airDate) <= new Date()
+                          const isPlayable = item.tmdbId && !(item.premiumOnly && !isPremium) && isEpReleased
                           return (
                             <div
                               key={ep.id}
@@ -803,14 +859,22 @@ export default function PlayModal({ item, onClose }: Props) {
                                 {isPlayable && (
                                   <Play size={14} fill="white" className="text-white absolute opacity-0 group-hover:opacity-100 transition ml-0.5" />
                                 )}
+                                {!isEpReleased && (
+                                  <Lock size={12} className="text-white/20 absolute" />
+                                )}
                               </div>
 
-                              {/* Title + status */}
+                              {/* Title + status + air date */}
                               <div className="flex-1 min-w-0">
                                 <p className={`text-sm font-medium truncate leading-snug ${isPlayable ? 'text-white/90' : 'text-white/30'}`}>
                                   {ep.title}
                                 </p>
-                                {hasProgress && (
+                                {!isEpReleased && ep.airDate && (
+                                  <p className="text-[11px] text-white/25 mt-0.5">
+                                    {new Date(ep.airDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                  </p>
+                                )}
+                                {hasProgress && isEpReleased && (
                                   <div className="mt-2 h-1 w-full max-w-[140px] bg-white/10 rounded-full overflow-hidden">
                                     <div className="h-full bg-red-500 rounded-full" style={{ width: `${pct}%` }} />
                                   </div>
@@ -818,7 +882,13 @@ export default function PlayModal({ item, onClose }: Props) {
                               </div>
 
                               {/* Badges */}
-                              {isWatched && (
+                              {!isEpReleased && (
+                                <span className="flex-shrink-0 text-[9px] font-semibold tracking-wide uppercase
+                                                 text-white/20 px-1.5 py-0.5 rounded bg-white/5">
+                                  Upcoming
+                                </span>
+                              )}
+                              {isEpReleased && isWatched && (
                                 <span className="flex-shrink-0 text-[9px] font-semibold tracking-wide uppercase
                                                  text-emerald-400/70 px-1.5 py-0.5 rounded bg-emerald-500/10">
                                   Watched
