@@ -123,8 +123,8 @@ export default function PlayModal({ item, onClose }: Props) {
   // ── Digital release check (movies only — TV checked per-episode via airDate) ─
   useEffect(() => {
     if (item.type !== 'movie' || !item.tmdbId) return
-    // Items already in Jellyfin library are always playable
-    if (item.onDemand) { setDigitalRelease({ isReleased: true }); return }
+    // Items from Jellyfin library (source === 'jellyfin') are always playable
+    if (item.source === 'jellyfin') { setDigitalRelease({ isReleased: true }); return }
     setDigitalReleaseLoading(true)
     api.checkDigitalRelease(item.tmdbId, 'movie')
       .then(setDigitalRelease)
@@ -324,7 +324,7 @@ export default function PlayModal({ item, onClose }: Props) {
       setError('Cannot play — missing TMDB ID')
       return
     }
-    if (item.type === 'movie' && !item.onDemand && digitalRelease?.isReleased !== true) return
+    if (item.type === 'movie' && item.source !== 'jellyfin' && digitalRelease?.isReleased !== true) return
     setLoadingPlay(true)
     setError('')
     pendingResumeRef.current = startTicks
@@ -492,7 +492,7 @@ export default function PlayModal({ item, onClose }: Props) {
 
   const showActionRow = item.type === 'movie'
   // Movie is released only when the check explicitly confirms it (not during loading/null state)
-  const isMovieReleased = item.type !== 'movie' || item.onDemand || digitalRelease?.isReleased === true
+  const isMovieReleased = item.type !== 'movie' || item.source === 'jellyfin' || digitalRelease?.isReleased === true
 
   return (
     <motion.div
@@ -631,7 +631,7 @@ export default function PlayModal({ item, onClose }: Props) {
                   <Lock size={14} />
                   Premium Only
                 </div>
-              ) : digitalReleaseLoading || (!item.onDemand && item.type === 'movie' && !digitalRelease) ? (
+              ) : digitalReleaseLoading || (item.source !== 'jellyfin' && item.type === 'movie' && !digitalRelease) ? (
                 <div className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
                                 bg-white/5 text-white/30 text-sm">
                   <Loader2 size={14} className="animate-spin" />
