@@ -39,7 +39,7 @@ import {
 import * as api from '@/services/api'
 import type { OsSubtitleResult } from '@/services/api'
 import type { MpvLaunchPayload } from '@/types/electron'
-import type { AudioTrack, SubtitleTrack, EpisodeInfo } from '@/types/media'
+import type { AudioTrack, EpisodeInfo } from '@/types/media'
 import type { SubtitleSize } from '@/contexts/SettingsContext'
 import { useGamepad } from '@/hooks/useGamepad'
 
@@ -158,7 +158,6 @@ export default function PlayerOverlay() {
 
   // ── State: track selections ─────────────────────────────────────────────
   const [activeAudio, setActiveAudio] = useState(0)
-  const [activeSub, setActiveSub] = useState<number | null>(null)
   const [activeQuality, setActiveQuality] = useState(0)
   const [activeSpeed, setActiveSpeed] = useState(1)
   const [volume, setVolume] = useState(100)
@@ -167,6 +166,7 @@ export default function PlayerOverlay() {
   // ── State: subtitle rendering ───────────────────────────────────────────
   const [vttCues, setVttCues] = useState<VttCue[]>([])
   const [activeCue, setActiveCue] = useState<string | null>(null)
+  const [subOffset, setSubOffset] = useState(0) // seconds (+/- shift for subtitle timing)
 
   // ── State: sleep timer ──────────────────────────────────────────────────
   const [sleepOption, setSleepOption] = useState<SleepOption>('off')
@@ -177,7 +177,6 @@ export default function PlayerOverlay() {
   const upNextDismissedRef = useRef(false)
 
   // ── State: OpenSubtitles ────────────────────────────────────────────────
-  const [osSearchOpen, setOsSearchOpen] = useState(false)
   const [osQuery, setOsQuery] = useState('')
   const [osSearching, setOsSearching] = useState(false)
   const [osResults, setOsResults] = useState<OsSubtitleResult[]>([])
@@ -292,9 +291,10 @@ export default function PlayerOverlay() {
   // ── Subtitle cue matching on time update ─────────────────────────────────
   useEffect(() => {
     if (!vttCues.length) { setActiveCue(null); return }
-    const cue = vttCues.find((c) => time >= c.start && time <= c.end)
+    const adjusted = time + subOffset
+    const cue = vttCues.find((c) => adjusted >= c.start && adjusted <= c.end)
     setActiveCue(cue?.text ?? null)
-  }, [time, vttCues])
+  }, [time, vttCues, subOffset])
 
   // ── Up Next trigger — 2 min before end ──────────────────────────────────
   useEffect(() => {
@@ -341,7 +341,7 @@ export default function PlayerOverlay() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.itemId])
 
-  // ── Auto-select preferred audio/subtitle on open ────────────────────────
+  // ── Auto-select preferred audio on open ─────────────────────────────────
   useEffect(() => {
     if (!job) return
     const savedPrefs = loadAvPrefs(avPrefsKey)
@@ -366,42 +366,7 @@ export default function PlayerOverlay() {
         }
       }
     }
-
-    // Subtitle preference
-    let restoredSub = false
-    if (savedPrefs?.sub !== null && savedPrefs?.sub !== undefined) {
-      const subTrack = job.subtitleTracks.find((t) => t.index === savedPrefs.sub)
-      if (subTrack) {
-        restoredSub = true
-        if (isDirectPlay) {
-          // Direct play: use mpv native subtitle
-          setActiveSub(subTrack.index)
-          const mpvSid = subTrack.mpvSid ?? (job.subtitleTracks.findIndex((t) => t.index === subTrack.index) + 1)
-          window.electronAPI.mpv.setSid(mpvSid)
-        } else if (!subTrack.isImageBased) {
-          // HLS: client-side VTT
-          setActiveSub(subTrack.index)
-          const subPath = `/jellyfin/subtitle-vtt/${job.itemId}/${subTrack.index}`
-          api.fetchText(subPath).then((text) => setVttCues(parseVttCues(text))).catch(() => {})
-        }
-      }
-    }
-
-    if (!restoredSub && preferredSubtitleLang !== 'off' && preferredSubtitleLang !== 'auto') {
-      const match = job.subtitleTracks.find(
-        (t) => t.language?.toLowerCase().startsWith(preferredSubtitleLang)
-      )
-      if (match) {
-        setActiveSub(match.index)
-        if (isDirectPlay) {
-          const mpvSid = match.mpvSid ?? (job.subtitleTracks.findIndex((t) => t.index === match.index) + 1)
-          window.electronAPI.mpv.setSid(mpvSid)
-        } else if (!match.isImageBased) {
-          const subPath = `/jellyfin/subtitle-vtt/${job.itemId}/${match.index}`
-          api.fetchText(subPath).then((text) => setVttCues(parseVttCues(text))).catch(() => {})
-        }
-      }
-    }
+    // Subtitles handled by OpenSubtitles auto-fetch/auto-select below
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.itemId])
 
@@ -439,12 +404,8 @@ export default function PlayerOverlay() {
   useEffect(() => {
     if (osAutoSelectedRef.current) return
     if (osResults.length === 0) return
-    if (activeSub !== null || activeOsSubId !== null) return
+    if (activeOsSubId !== null) return
     if (preferredSubtitleLang === 'off') return
-    const hasEmbeddedMatch = preferredSubtitleLang !== 'auto' && job?.subtitleTracks.some(
-      (t) => t.language?.toLowerCase().startsWith(preferredSubtitleLang)
-    )
-    if (hasEmbeddedMatch) return
     const lang = preferredSubtitleLang === 'auto' ? 'en' : preferredSubtitleLang
     const match = osResults.find((s) => s.language?.toLowerCase().startsWith(lang) && s.fileId)
     if (match) {
@@ -643,7 +604,7 @@ export default function PlayerOverlay() {
 
   async function switchAudio(track: AudioTrack) {
     setActiveAudio(track.index)
-    saveAvPrefs(avPrefsKey, track.index, activeSub)
+    saveAvPrefs(avPrefsKey, track.index, null)
     setShowSettings(false)
 
     if (isDirectPlay) {
@@ -672,56 +633,13 @@ export default function PlayerOverlay() {
     }
   }
 
-  async function switchSubtitle(track: SubtitleTrack | null) {
-    setActiveSub(track?.index ?? null)
-    saveAvPrefs(avPrefsKey, activeAudio, track?.index ?? null)
+  function disableSubtitles() {
     setVttCues([])
     setActiveCue(null)
     setActiveOsSubId(null)
+    setSubOffset(0)
+    if (isDirectPlay) window.electronAPI.mpv.setSid(0)
     setShowSubtitlePanel(false)
-
-    if (!track) {
-      if (isDirectPlay) await window.electronAPI.mpv.setSid(0)
-      return
-    }
-
-    if (isDirectPlay) {
-      const mpvSid = track.mpvSid
-        ?? (job!.subtitleTracks.findIndex((t) => t.index === track.index) + 1)
-      await window.electronAPI.mpv.setSid(mpvSid)
-      return
-    }
-
-    if (track.isImageBased) {
-      // PGS → server-side burn-in
-      setBuffering(true)
-      try {
-        const newJob = await api.startPlayJob({
-          itemId: job!.itemId,
-          subtitleStreamIndex: track.index,
-          audioStreamIndex: activeAudio,
-          maxBitrate: QUALITY_PRESETS[activeQuality].maxBitrate || undefined,
-          startTimeTicks: timeRef.current > 0 ? Math.floor(timeRef.current * 10_000_000) : undefined,
-          previousPlaySessionId: job!.playSessionId || undefined,
-          previousDeviceId: job!.deviceId,
-        })
-        await window.electronAPI.mpv.loadFile(newJob.hlsUrl)
-        setCurrentJob({ ...currentJob!, job: newJob })
-      } catch {
-        setError('Failed to switch subtitle')
-        setBuffering(false)
-      }
-      return
-    }
-
-    // VTT subtitle → client-side rendering
-    const subPath = `/jellyfin/subtitle-vtt/${job!.itemId}/${track.index}`
-    try {
-      const text = await api.fetchText(subPath)
-      setVttCues(parseVttCues(text))
-    } catch {
-      setActiveSub(null)
-    }
   }
 
   async function switchQuality(preset: typeof QUALITY_PRESETS[number], index: number) {
@@ -780,6 +698,7 @@ export default function PlayerOverlay() {
     setLocalEpId(ep.jellyfinId)
     setVttCues([])
     setActiveCue(null)
+    setSubOffset(0)
     setEnded(false)
     osFetchedRef.current = false
     osAutoSelectedRef.current = false
@@ -836,8 +755,10 @@ export default function PlayerOverlay() {
     if (!sub.fileId) { setOsError('No file ID'); return }
     setVttCues([])
     setActiveCue(null)
-    setActiveSub(null)
+    setSubOffset(0)
     setOsError('')
+    // Disable mpv's native subs so only our VTT overlay renders
+    if (isDirectPlay) window.electronAPI.mpv.setSid(0)
     try {
       const vttText = await api.downloadSubtitle(sub.fileId, sub.language)
       setVttCues(parseVttCues(vttText))
@@ -863,7 +784,7 @@ export default function PlayerOverlay() {
 
   const currentEpIdx = episodeList.findIndex((ep) => ep.jellyfinId === localEpId)
   const gpFocusRef = useRef<HTMLElement | null>(null)
-  const [gpZone, setGpZone] = useState<'none' | 'seek' | 'controls' | 'panel' | 'volume' | 'upnext'>('none')
+  const [gpZone, setGpZone] = useState<'none' | 'seek' | 'controls' | 'panel' | 'volume' | 'upnext' | 'skip'>('none')
   const [gpControlIdx, setGpControlIdx] = useState(0)
   const [showVolumePopup, setShowVolumePopup] = useState(false)
   const panelOpen = showSettings || showSubtitlePanel || showEpisodePanel
@@ -937,6 +858,17 @@ export default function PlayerOverlay() {
       return
     }
 
+    // Skip action zone — skip intro/credits button visible
+    if (gpZone === 'skip') {
+      if (dir === 'down') {
+        setGpZone('controls')
+        gpSetFocus(null)
+        const btns = gpGetControlButtons()
+        if (btns.length > 0) { setGpControlIdx(0); gpSetFocus(btns[0]) }
+      }
+      return
+    }
+
     if (upNextVisible && nextEpisode) {
       if (gpZone !== 'upnext') {
         setGpZone('upnext')
@@ -953,6 +885,13 @@ export default function PlayerOverlay() {
           gpSetFocus(btns[next])
         }
       }
+      return
+    }
+
+    // Error overlay takes priority — focus the dismiss button
+    if (error) {
+      const dismissBtn = containerRef.current?.querySelector<HTMLElement>('[data-focusable]')
+      if (dismissBtn) gpSetFocus(dismissBtn)
       return
     }
 
@@ -1000,8 +939,15 @@ export default function PlayerOverlay() {
         setGpControlIdx(nextIdx)
         gpSetFocus(btns[nextIdx])
       } else if (dir === 'up') {
-        setGpZone('seek')
-        gpSetFocus(null)
+        // If skip intro/credits is visible, focus that first; otherwise seek bar
+        const skipBtn = containerRef.current?.querySelector<HTMLElement>('[data-skip-action]')
+        if (skipBtn && skipBtn.offsetParent !== null) {
+          setGpZone('skip')
+          gpSetFocus(skipBtn)
+        } else {
+          setGpZone('seek')
+          gpSetFocus(null)
+        }
       } else if (dir === 'down') {
         setGpZone('none')
         gpSetFocus(null)
@@ -1009,18 +955,22 @@ export default function PlayerOverlay() {
       }
     }
   }, [gpZone, panelOpen, showVolumePopup, volume, gpControlIdx, upNextVisible, nextEpisode,
-      gpGetControlButtons, gpGetPanelItems, gpSetFocus, gpPanelMove])
+      error, gpGetControlButtons, gpGetPanelItems, gpSetFocus, gpPanelMove])
 
   const gpActivate = useCallback(() => {
+    // Always allow clicking a focused element (error dismiss, skip, etc.)
+    if (gpFocusRef.current && (gpZone === 'skip' || gpZone === 'upnext' || gpZone === 'panel' || gpZone === 'controls')) {
+      gpFocusRef.current.click(); return
+    }
     if (gpZone === 'volume' && showVolumePopup) { setShowVolumePopup(false); setGpZone('controls'); return }
-    if (gpZone === 'upnext' && gpFocusRef.current) { gpFocusRef.current.click(); return }
-    if (gpZone === 'panel' && gpFocusRef.current) { gpFocusRef.current.click(); return }
-    if (gpZone === 'controls' && gpFocusRef.current) { gpFocusRef.current.click(); return }
+    // Error overlay — click dismiss if focused
+    if (error && gpFocusRef.current) { gpFocusRef.current.click(); return }
     window.electronAPI.mpv.togglePause()
-  }, [gpZone, showVolumePopup])
+  }, [gpZone, showVolumePopup, error])
 
   const gpBack = useCallback(() => {
     gpSetFocus(null)
+    if (gpZone === 'skip') { setGpZone('controls'); return }
     if (upNextVisible && gpZone === 'upnext') { upNextDismissedRef.current = true; setUpNextVisible(false); handleClose(); return }
     if (showVolumePopup) { setShowVolumePopup(false); setGpZone('controls'); return }
     if (showSettings) { setShowSettings(false); setGpZone('controls'); return }
@@ -1129,6 +1079,7 @@ export default function PlayerOverlay() {
           <div className="text-center max-w-sm px-6">
             <p className="text-red-400 mb-4 text-sm">{error}</p>
             <button
+              data-focusable
               onClick={() => { setError(''); setBuffering(false) }}
               className="px-4 py-2 rounded-lg bg-white/10 text-white text-sm hover:bg-white/20 transition"
             >
@@ -1193,7 +1144,7 @@ export default function PlayerOverlay() {
         </motion.div>
       )}
 
-      {/* Close button */}
+      {/* Close button (B button on gamepad) */}
       <button
         onClick={(e) => { e.stopPropagation(); handleClose() }}
         onMouseEnter={() => setInteractive(true)}
@@ -1215,6 +1166,7 @@ export default function PlayerOverlay() {
       {currentJob?.job.introStartSec != null && currentJob?.job.introEndSec != null &&
         time >= currentJob.job.introStartSec && time < currentJob.job.introEndSec && (
         <button
+          data-focusable data-skip-action
           onMouseEnter={() => setInteractive(true)}
           onMouseLeave={() => setInteractive(false)}
           onClick={() => {
@@ -1232,6 +1184,7 @@ export default function PlayerOverlay() {
       {/* Skip Credits — only show when Up Next overlay is NOT visible (avoid duplicate prompts) */}
       {!upNextVisible && currentJob?.job.creditsStartSec != null && time >= currentJob.job.creditsStartSec && (
         <button
+          data-focusable data-skip-action
           onMouseEnter={() => setInteractive(true)}
           onMouseLeave={() => setInteractive(false)}
           onClick={() => {
@@ -1403,7 +1356,7 @@ export default function PlayerOverlay() {
         </div>
       </motion.div>
 
-      {/* ── Subtitle panel — unified Stremio-style ────────────────────────── */}
+      {/* ── Subtitle panel — OpenSubtitles only ──────────────────────────── */}
       {showSubtitlePanel && job && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
@@ -1413,18 +1366,46 @@ export default function PlayerOverlay() {
           onMouseEnter={() => setInteractive(true)}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Header */}
           <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
             <p className="text-sm font-semibold text-white">Subtitles</p>
-            {osSearching && <Loader2 size={14} className="text-white/40 animate-spin" />}
+            <div className="flex items-center gap-2">
+              {osSearching && <Loader2 size={14} className="text-white/40 animate-spin" />}
+              <button data-focusable onClick={() => setShowSubtitlePanel(false)}
+                className="text-white/30 hover:text-white transition"><X size={14} /></button>
+            </div>
           </div>
 
-          <div className="max-h-[28rem] overflow-y-auto py-1">
+          {/* Search bar — always visible */}
+          <div className="px-3 pt-3 pb-2 space-y-1.5">
+            <div className="flex gap-1.5">
+              <input
+                value={osQuery}
+                onChange={(e) => setOsQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') searchOsSubs() }}
+                placeholder="Search OpenSubtitles..."
+                className="flex-1 min-w-0 bg-white/10 border border-white/10 rounded-lg text-white text-xs px-2.5 py-1.5 outline-none placeholder:text-white/20"
+              />
+              <button
+                data-focusable
+                onClick={() => searchOsSubs()}
+                disabled={osSearching}
+                className="flex-shrink-0 px-2.5 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-600 text-white transition disabled:opacity-40 flex items-center"
+              >
+                {osSearching ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+              </button>
+            </div>
+            {osError && !osSearching && <p className="px-2 text-xs text-red-400">{osError}</p>}
+          </div>
+
+          {/* Results list + off button */}
+          <div className="max-h-[22rem] overflow-y-auto">
             {/* Off */}
             <button
               data-focusable
-              onClick={() => { switchSubtitle(null); setActiveOsSubId(null) }}
+              onClick={disableSubtitles}
               className={`w-full text-left px-4 py-2.5 text-sm transition ${
-                activeSub === null && activeOsSubId === null
+                activeOsSubId === null
                   ? 'bg-red-600/15 text-white'
                   : 'text-white/60 hover:bg-white/5 hover:text-white'
               }`}
@@ -1432,111 +1413,52 @@ export default function PlayerOverlay() {
               Off
             </button>
 
-            {/* Grouped by language */}
-            {(() => {
-              const groups = new Map<string, { embedded: typeof job.subtitleTracks, external: typeof osResults }>()
-              for (const t of job.subtitleTracks) {
-                const lang = (t.language || 'und').toLowerCase()
-                if (!groups.has(lang)) groups.set(lang, { embedded: [], external: [] })
-                groups.get(lang)!.embedded.push(t)
-              }
-              for (const s of osResults) {
-                const lang = (s.language || 'und').toLowerCase()
-                if (!groups.has(lang)) groups.set(lang, { embedded: [], external: [] })
-                groups.get(lang)!.external.push(s)
-              }
-              const prefLang = preferredSubtitleLang === 'off' || preferredSubtitleLang === 'auto' ? 'en' : preferredSubtitleLang.toLowerCase()
-              const sortedLangs = Array.from(groups.keys()).sort((a, b) => {
-                const aMatch = a.startsWith(prefLang) ? 0 : 1
-                const bMatch = b.startsWith(prefLang) ? 0 : 1
-                if (aMatch !== bMatch) return aMatch - bMatch
-                return a.localeCompare(b)
-              })
-
-              return sortedLangs.map((lang) => {
-                const group = groups.get(lang)!
-                const langLabel = lang === 'und' ? 'Unknown' : lang.toUpperCase()
-                if (group.embedded.length === 0 && group.external.length === 0) return null
-                return (
-                  <div key={lang}>
-                    <div className="px-4 pt-3 pb-1">
-                      <span className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{langLabel}</span>
-                    </div>
-                    {group.embedded.map((t) => (
-                      <button
-                        key={`emb-${t.index}`} data-focusable
-                        onClick={() => { switchSubtitle(t); setActiveOsSubId(null) }}
-                        className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2 transition ${
-                          activeSub === t.index ? 'bg-red-600/15 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'
-                        }`}
-                      >
-                        <span className="flex-1 truncate">{t.label || t.language}</span>
-                        <span className="text-[9px] bg-white/8 text-white/40 px-1.5 py-0.5 rounded">Embedded</span>
-                        {t.isImageBased && <span className="text-[9px] bg-yellow-600/20 text-yellow-400 px-1.5 py-0.5 rounded">PGS</span>}
-                      </button>
-                    ))}
-                    {group.external.map((sub) => (
-                      <button
-                        key={`os-${sub.id}`} data-focusable
-                        onClick={() => applyOsSub(sub)}
-                        className={`w-full text-left px-4 py-2 transition ${
-                          activeOsSubId === sub.id ? 'bg-red-600/15 text-white' : 'text-white/50 hover:bg-white/5 hover:text-white'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="flex-1 truncate text-sm">{sub.name || 'Unnamed'}</span>
-                          <div className="flex-shrink-0 flex gap-1">
-                            {sub.hearingImpaired && <span className="text-[9px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded">HI</span>}
-                            <span className="text-[9px] bg-white/8 text-white/30 px-1.5 py-0.5 rounded">
-                              {sub.downloadCount > 0 ? `${(sub.downloadCount / 1000).toFixed(0)}k` : 'OS'}
-                            </span>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )
-              })
-            })()}
-
-            {job.subtitleTracks.length === 0 && osResults.length === 0 && !osSearching && (
-              <p className="px-4 py-3 text-xs text-white/30">No subtitles available</p>
-            )}
-
-            {/* Manual search */}
-            <div className="border-t border-white/5 mt-1 p-2">
+            {/* Subtitle results sorted by downloads */}
+            {osResults.map((sub) => (
               <button
-                data-focusable
-                onClick={() => setOsSearchOpen((v) => !v)}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs text-white/30 hover:text-white/60 hover:bg-white/5 transition"
+                key={sub.id} data-focusable
+                onClick={() => applyOsSub(sub)}
+                className={`w-full text-left px-4 py-2 transition ${
+                  activeOsSubId === sub.id ? 'bg-red-600/15 text-white' : 'text-white/50 hover:bg-white/5 hover:text-white'
+                }`}
               >
-                <span className="flex items-center gap-1.5"><Search size={11} /> Search manually</span>
-                <span className="text-white/20">{osSearchOpen ? '▲' : '▼'}</span>
-              </button>
-              {osSearchOpen && (
-                <div className="mt-1.5 space-y-1.5">
-                  <div className="flex gap-1.5 px-1">
-                    <input
-                      value={osQuery}
-                      onChange={(e) => setOsQuery(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') searchOsSubs() }}
-                      placeholder="Search OpenSubtitles..."
-                      className="flex-1 min-w-0 bg-white/10 border border-white/10 rounded-lg text-white text-xs px-2.5 py-1.5 outline-none placeholder:text-white/20"
-                    />
-                    <button
-                      data-focusable
-                      onClick={() => searchOsSubs()}
-                      disabled={osSearching}
-                      className="flex-shrink-0 px-2.5 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-600 text-white transition disabled:opacity-40 flex items-center"
-                    >
-                      {osSearching ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
-                    </button>
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 truncate text-sm">{sub.name || 'Unnamed'}</span>
+                  <div className="flex-shrink-0 flex items-center gap-1">
+                    <span className="text-[9px] bg-white/8 text-white/30 px-1.5 py-0.5 rounded uppercase">{sub.language}</span>
+                    {sub.hearingImpaired && <span className="text-[9px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded">HI</span>}
+                    <span className="text-[9px] bg-white/8 text-white/30 px-1.5 py-0.5 rounded tabular-nums">
+                      {sub.downloadCount > 0 ? `${(sub.downloadCount / 1000).toFixed(0)}k` : '—'}
+                    </span>
                   </div>
-                  {osError && !osSearching && <p className="px-3 py-1 text-xs text-red-400">{osError}</p>}
                 </div>
-              )}
-            </div>
+              </button>
+            ))}
+
+            {osResults.length === 0 && !osSearching && (
+              <p className="px-4 py-3 text-xs text-white/30">No subtitles found — try searching above</p>
+            )}
           </div>
+
+          {/* Timer offset — only shown when a subtitle is active */}
+          {activeOsSubId && (
+            <div className="px-4 py-2.5 border-t border-white/10 flex items-center justify-between">
+              <span className="text-xs text-white/40">Offset</span>
+              <div className="flex items-center gap-1.5">
+                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v - 0.5) * 10) / 10)}
+                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-xs transition">-0.5s</button>
+                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v - 0.1) * 10) / 10)}
+                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-xs transition">-0.1s</button>
+                <span className="text-xs text-white/70 tabular-nums w-12 text-center font-mono">
+                  {subOffset >= 0 ? '+' : ''}{subOffset.toFixed(1)}s
+                </span>
+                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v + 0.1) * 10) / 10)}
+                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-xs transition">+0.1s</button>
+                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v + 0.5) * 10) / 10)}
+                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-xs transition">+0.5s</button>
+              </div>
+            </div>
+          )}
         </motion.div>
       )}
 
@@ -1557,6 +1479,8 @@ export default function PlayerOverlay() {
                 Season {episodeList[0]?.seasonNumber ?? '?'} · {episodeList.length} Episode{episodeList.length !== 1 ? 's' : ''}
               </p>
             </div>
+            <button data-focusable onClick={() => setShowEpisodePanel(false)}
+              className="text-white/30 hover:text-white transition"><X size={14} /></button>
           </div>
           <div className="max-h-80 overflow-y-auto py-1">
             {episodeList.map((ep) => {
@@ -1606,7 +1530,7 @@ export default function PlayerOverlay() {
           onMouseEnter={() => setInteractive(true)}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex border-b border-white/10">
+          <div className="flex items-center border-b border-white/10">
             {(['audio', 'quality', 'speed', 'sleep'] as const).map((tab) => (
               <button
                 key={tab} data-focusable
@@ -1618,6 +1542,8 @@ export default function PlayerOverlay() {
                 {tab === 'sleep' ? <Moon size={13} className="mx-auto" /> : tab}
               </button>
             ))}
+            <button data-focusable onClick={() => setShowSettings(false)}
+              className="px-2.5 py-2.5 text-white/30 hover:text-white transition"><X size={13} /></button>
           </div>
 
           <div className="max-h-56 overflow-y-auto p-2">

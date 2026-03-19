@@ -55,8 +55,6 @@ export default function Home() {
 
   const [trending, setTrending] = useState<TrendingResponse | null>(null)
   const [continueWatching, setContinueWatching] = useState<UnifiedMedia[]>([])
-  const [recentMovies, setRecentMovies] = useState<UnifiedMedia[]>([])
-  const [recentTV, setRecentTV] = useState<UnifiedMedia[]>([])
   const [categories, setCategories] = useState<api.HomeCategories | null>(null)
   const [selected, setSelected] = useState<UnifiedMedia | null>(null)
   const [loading, setLoading] = useState(true)
@@ -88,9 +86,8 @@ export default function Home() {
     Promise.all([
       api.getTrending(),
       api.getContinueWatching(),
-      api.getJellyfinLatest(60),
     ])
-      .then(async ([t, cw, latest]) => {
+      .then(async ([t, cw]) => {
         setTrending(t)
         // Prefer VALOR progress store; fall back to Jellyfin native resume if empty
         // (covers items watched from Jellyfin directly or other clients)
@@ -99,8 +96,6 @@ export default function Home() {
           cwItems = await api.getJellyfinResume().catch(() => [])
         }
         setContinueWatching(cwItems)
-        setRecentMovies(latest.filter((i) => i.type === 'movie'))
-        setRecentTV(latest.filter((i) => i.type === 'tv'))
       })
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -268,22 +263,6 @@ export default function Home() {
 
       {filterItems(continueWatching).length > 0 && (
         <MediaRow title="Continue Watching" items={filterItems(continueWatching)} onPlay={handleCwClick} />
-      )}
-
-      {filterItems(recentMovies).length > 0 && (
-        <MediaRow
-          title={animeOnly ? 'Anime Movies' : 'Recently Added Movies'}
-          items={filterItems(recentMovies)}
-          onPlay={setSelected}
-        />
-      )}
-
-      {filterItems(recentTV).length > 0 && (
-        <MediaRow
-          title={animeOnly ? 'Anime Shows' : 'Recently Added TV'}
-          items={filterItems(recentTV)}
-          onPlay={setSelected}
-        />
       )}
 
       {!animeOnly && !onDemandOnly && trending?.movies && trending.movies.length > 0 && (
