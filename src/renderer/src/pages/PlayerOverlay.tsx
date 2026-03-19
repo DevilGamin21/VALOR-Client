@@ -1299,12 +1299,16 @@ export default function PlayerOverlay() {
             {paused ? <Play size={22} fill="white" /> : <Pause size={22} />}
           </button>
 
-          {/* Skip */}
-          <button data-gp-control data-focusable onClick={() => window.electronAPI.mpv.seek(-10)} className="text-white/70 hover:text-white transition">
-            <SkipBack size={18} />
+          {/* Skip ±10s */}
+          <button data-gp-control data-focusable onClick={() => window.electronAPI.mpv.seek(-10)}
+            className="relative text-white/70 hover:text-white transition" title="Back 10s">
+            <SkipBack size={20} />
+            <span className="absolute inset-0 flex items-center justify-center text-[8px] font-bold leading-none pointer-events-none">10</span>
           </button>
-          <button data-gp-control data-focusable onClick={() => window.electronAPI.mpv.seek(10)} className="text-white/70 hover:text-white transition">
-            <SkipForward size={18} />
+          <button data-gp-control data-focusable onClick={() => window.electronAPI.mpv.seek(10)}
+            className="relative text-white/70 hover:text-white transition" title="Forward 10s">
+            <SkipForward size={20} />
+            <span className="absolute inset-0 flex items-center justify-center text-[8px] font-bold leading-none pointer-events-none">10</span>
           </button>
 
           {/* Volume */}
