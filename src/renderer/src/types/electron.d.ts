@@ -98,6 +98,7 @@ declare global {
         setAid: (aid: number) => Promise<void>
         setSid: (sid: number) => Promise<void>
         setSpeed: (speed: number) => Promise<void>
+        setSubDelay: (secs: number) => Promise<void>
         subAdd: (path: string) => Promise<void>
         quit: () => Promise<void>
         fullscreen: () => Promise<void>

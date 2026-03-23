@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setAid: (aid: number): Promise<void> => ipcRenderer.invoke('mpv:set-aid', aid),
     setSid: (sid: number): Promise<void> => ipcRenderer.invoke('mpv:set-sid', sid),
     setSpeed: (speed: number): Promise<void> => ipcRenderer.invoke('mpv:set-speed', speed),
+    setSubDelay: (secs: number): Promise<void> => ipcRenderer.invoke('mpv:set-sub-delay', secs),
     subAdd: (path: string): Promise<void> => ipcRenderer.invoke('mpv:sub-add', path),
     quit: (): Promise<void> => ipcRenderer.invoke('mpv:quit'),
     fullscreen: (): Promise<void> => ipcRenderer.invoke('mpv:fullscreen'),

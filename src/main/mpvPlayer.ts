@@ -259,6 +259,8 @@ export class MpvPlayer {
   setSid(sid: number)          { return this.send(['set_property', 'sid', sid]) }
   /** Set playback speed (1.0 = normal) */
   setSpeed(speed: number)      { return this.send(['set_property', 'speed', speed]) }
+  /** Set subtitle delay in seconds (positive = later, negative = earlier) */
+  setSubDelay(secs: number)    { return this.send(['set_property', 'sub-delay', secs]) }
   /** Load an external subtitle file */
   subAdd(path: string)         { return this.send(['sub-add', path]) }
 

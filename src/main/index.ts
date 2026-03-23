@@ -491,6 +491,7 @@ ipcMain.handle('mpv:load-file',     (_e, url: string)  => mpvInstance?.loadFile(
 ipcMain.handle('mpv:set-aid',       (_e, aid: number)  => mpvInstance?.setAid(aid))
 ipcMain.handle('mpv:set-sid',       (_e, sid: number)  => mpvInstance?.setSid(sid))
 ipcMain.handle('mpv:set-speed',    (_e, speed: number) => mpvInstance?.setSpeed(speed))
+ipcMain.handle('mpv:set-sub-delay', (_e, secs: number) => mpvInstance?.setSubDelay(secs))
 ipcMain.handle('mpv:sub-add',      (_e, path: string) => mpvInstance?.subAdd(path))
 ipcMain.handle('mpv:quit',          ()         => { mpvInstance?.quit(); mpvInstance = null; mpvPayload = null; closePlayerWindow() })
 ipcMain.handle('mpv:fullscreen',   ()         => {

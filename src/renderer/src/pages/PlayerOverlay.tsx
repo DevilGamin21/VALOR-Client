@@ -167,6 +167,8 @@ export default function PlayerOverlay() {
   const [vttCues, setVttCues] = useState<VttCue[]>([])
   const [activeCue, setActiveCue] = useState<string | null>(null)
   const [subOffset, setSubOffset] = useState(0) // seconds (+/- shift for subtitle timing)
+  const [editingOffset, setEditingOffset] = useState(false)
+  const [editingOffsetValue, setEditingOffsetValue] = useState('')
 
   // ── State: sleep timer ──────────────────────────────────────────────────
   const [sleepOption, setSleepOption] = useState<SleepOption>('off')
@@ -295,6 +297,11 @@ export default function PlayerOverlay() {
     const cue = vttCues.find((c) => adjusted >= c.start && adjusted <= c.end)
     setActiveCue(cue?.text ?? null)
   }, [time, vttCues, subOffset])
+
+  // ── Sync subtitle offset to mpv's sub-delay property ───────────────────
+  useEffect(() => {
+    window.electronAPI.mpv.setSubDelay(subOffset).catch(() => {})
+  }, [subOffset])
 
   // ── Up Next trigger — 2 min before end ──────────────────────────────────
   useEffect(() => {
@@ -1440,25 +1447,59 @@ export default function PlayerOverlay() {
             )}
           </div>
 
-          {/* Timer offset — only shown when a subtitle is active */}
-          {activeOsSubId && (
-            <div className="px-4 py-2.5 border-t border-white/10 flex items-center justify-between">
+          {/* Subtitle timing offset — always visible in subtitle panel */}
+          <div className="px-4 py-2.5 border-t border-white/10">
+            <div className="flex items-center justify-between">
               <span className="text-xs text-white/40">Offset</span>
-              <div className="flex items-center gap-1.5">
-                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v - 0.5) * 10) / 10)}
-                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-xs transition">-0.5s</button>
-                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v - 0.1) * 10) / 10)}
-                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-xs transition">-0.1s</button>
-                <span className="text-xs text-white/70 tabular-nums w-12 text-center font-mono">
-                  {subOffset >= 0 ? '+' : ''}{subOffset.toFixed(1)}s
-                </span>
-                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v + 0.1) * 10) / 10)}
-                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-xs transition">+0.1s</button>
-                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v + 0.5) * 10) / 10)}
-                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-xs transition">+0.5s</button>
+              <div className="flex items-center gap-1">
+                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v - 0.5) * 100) / 100)}
+                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-[10px] transition">-500</button>
+                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v - 0.05) * 100) / 100)}
+                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-[10px] transition">-50</button>
+                {editingOffset ? (
+                  <input
+                    autoFocus
+                    value={editingOffsetValue}
+                    onChange={(e) => setEditingOffsetValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const parsed = parseFloat(editingOffsetValue)
+                        if (!isNaN(parsed)) setSubOffset(Math.round(parsed / 1000 * 100) / 100)
+                        setEditingOffset(false)
+                      } else if (e.key === 'Escape') {
+                        setEditingOffset(false)
+                      }
+                    }}
+                    onBlur={() => {
+                      const parsed = parseFloat(editingOffsetValue)
+                      if (!isNaN(parsed)) setSubOffset(Math.round(parsed / 1000 * 100) / 100)
+                      setEditingOffset(false)
+                    }}
+                    className="w-16 text-center text-xs font-mono bg-white/10 border border-white/20 rounded px-1 py-0.5 text-white outline-none"
+                  />
+                ) : (
+                  <button
+                    data-focusable
+                    onClick={() => { setEditingOffset(true); setEditingOffsetValue(String(Math.round(subOffset * 1000))) }}
+                    className="w-16 text-center text-xs text-white/70 tabular-nums font-mono py-0.5 rounded hover:bg-white/10 transition cursor-text"
+                    title="Click to type a value in ms"
+                  >
+                    {subOffset >= 0 ? '+' : ''}{Math.round(subOffset * 1000)}ms
+                  </button>
+                )}
+                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v + 0.05) * 100) / 100)}
+                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-[10px] transition">+50</button>
+                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v + 0.5) * 100) / 100)}
+                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-[10px] transition">+500</button>
               </div>
             </div>
-          )}
+            {subOffset !== 0 && (
+              <button data-focusable onClick={() => setSubOffset(0)}
+                className="mt-1.5 w-full text-center text-[10px] text-white/30 hover:text-white/60 transition">
+                Reset to 0ms
+              </button>
+            )}
+          </div>
         </motion.div>
       )}
 

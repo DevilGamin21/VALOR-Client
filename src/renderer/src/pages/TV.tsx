@@ -5,7 +5,6 @@ import * as api from '@/services/api'
 import MediaRow from '@/components/MediaRow'
 import PlayModal from '@/components/PlayModal'
 import AnimeToggle from '@/components/AnimeToggle'
-import OnDemandToggle from '@/components/OnDemandToggle'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useSettings } from '@/contexts/SettingsContext'
 import type { UnifiedMedia, TrendingResponse } from '@/types/media'
@@ -16,9 +15,7 @@ export default function TV() {
   const [searchParams] = useSearchParams()
   const q = searchParams.get('q') ?? ''
   const animeOnly = searchParams.get('anime') === '1'
-  const onDemandOnly = searchParams.get('ondemand') === '1'
 
-  const [library, setLibrary] = useState<UnifiedMedia[]>([])
   const [trending, setTrending] = useState<TrendingResponse | null>(null)
   const [categories, setCategories] = useState<api.HomeCategories | null>(null)
   const [results, setResults] = useState<UnifiedMedia[]>([])
@@ -45,18 +42,11 @@ export default function TV() {
         .catch(console.error)
         .finally(() => setLoading(false))
     } else {
-      Promise.all([
-        api.getJellyfinLatest(80).then(items => items.filter(i => i.type === 'tv')),
-        api.getTrending(),
-      ])
-        .then(([lib, t]) => {
-          setLibrary(lib)
-          setTrending(t)
-        })
+      api.getTrending()
+        .then(setTrending)
         .catch(console.error)
         .finally(() => {
           setLoading(false)
-          // Load categories non-blocking after initial paint
           api.getHomeCategories().then(setCategories).catch(() => {})
         })
     }
@@ -75,7 +65,7 @@ export default function TV() {
       {q ? (
         <div>
           <h1 className="px-6 text-lg font-bold text-white mb-6">
-            Results for "{q}"
+            Results for &quot;{q}&quot;
           </h1>
           {results.length === 0 ? (
             <p className="px-6 text-white/40 text-sm">No TV shows found.</p>
@@ -86,35 +76,29 @@ export default function TV() {
       ) : (
         <>
           <div className="px-6 mb-4 flex items-center gap-3">
-            <OnDemandToggle />
             <AnimeToggle />
           </div>
-          {(() => {
-            let filtered = library
-            if (animeOnly) filtered = filtered.filter((i) => i.isAnime)
-            if (onDemandOnly) filtered = filtered.filter((i) => i.onDemand)
-            const title = animeOnly ? 'Anime Shows' : onDemandOnly ? 'On Demand Shows' : 'Library'
-            return filtered.length > 0 ? (
-              <MediaRow title={title} items={filtered} onPlay={setSelected} />
-            ) : null
-          })()}
-          {!animeOnly && !onDemandOnly && trending?.tv && trending.tv.length > 0 && (
+          {!animeOnly && trending?.tv && trending.tv.length > 0 && (
             <MediaRow title="Trending" items={trending.tv} onPlay={setSelected} />
           )}
-          {!animeOnly && !onDemandOnly && categories?.topRatedTv && categories.topRatedTv.length > 0 && (
+          {!animeOnly && categories?.topRatedTv && categories.topRatedTv.length > 0 && (
             <MediaRow title="Top Rated" items={categories.topRatedTv} onPlay={setSelected} />
           )}
-          {!animeOnly && !onDemandOnly && categories?.sciFiTv && categories.sciFiTv.length > 0 && (
+          {!animeOnly && categories?.sciFiTv && categories.sciFiTv.length > 0 && (
             <MediaRow title="Sci-Fi & Fantasy" items={categories.sciFiTv} onPlay={setSelected} />
           )}
-          {library.length === 0 && !trending?.tv?.length && !categories && (
+          {animeOnly && trending?.tv && (
+            (() => {
+              const animeShows = trending.tv.filter((i) => i.isAnime)
+              return animeShows.length > 0 ? (
+                <MediaRow title="Anime Shows" items={animeShows} onPlay={setSelected} />
+              ) : (
+                <p className="px-6 text-white/40 text-sm">No anime shows found.</p>
+              )
+            })()
+          )}
+          {!trending?.tv?.length && !categories && (
             <p className="px-6 text-white/40 text-sm">No TV shows available.</p>
-          )}
-          {animeOnly && library.filter((i) => i.isAnime).length === 0 && (
-            <p className="px-6 text-white/40 text-sm">No anime shows found in library.</p>
-          )}
-          {onDemandOnly && !animeOnly && library.filter((i) => i.onDemand).length === 0 && (
-            <p className="px-6 text-white/40 text-sm">No on demand shows found.</p>
           )}
         </>
       )}
