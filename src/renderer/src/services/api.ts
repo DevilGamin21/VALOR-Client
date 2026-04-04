@@ -638,6 +638,9 @@ export interface StreamStatus {
   introEndSec?: number | null
   directStreamUrl?: string
   mpvOptions?: Record<string, string>
+  seasonNumber?: number | null
+  episodeNumber?: number | null
+  episodeName?: string | null
   error?: string
 }
 

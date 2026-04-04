@@ -295,6 +295,19 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
           job.seriesId = resolvedSeriesId || item.seriesId || undefined
           job.tmdbId = item.tmdbId
           job.year = item.year
+          // Set episode metadata for mpv title display + subtitle search
+          if (pendingEpIdRef.current && pendingEpisodesRef.current.length > 0) {
+            const pendingEp = pendingEpisodesRef.current.find(e => e.jellyfinId === pendingEpIdRef.current)
+            if (pendingEp) {
+              job.seasonNumber = pendingEp.seasonNumber
+              job.episodeNumber = pendingEp.episodeNumber
+              job.episodeName = pendingEp.title
+            }
+          }
+          // Fallback: use status fields if backend provides them
+          if (job.seasonNumber == null && status.seasonNumber != null) job.seasonNumber = status.seasonNumber
+          if (job.episodeNumber == null && status.episodeNumber != null) job.episodeNumber = status.episodeNumber
+          if (!job.episodeName && status.episodeName) job.episodeName = status.episodeName
 
           openPlayer(job, pendingResumeRef.current, pendingEpisodesRef.current, pendingEpIdRef.current)
           onClose()
@@ -396,16 +409,14 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
     setLoadingPlay(true)
     setError('')
     pendingResumeRef.current = startTicks
-    // Build episode list for player navigation (only episodes with jellyfinId)
-    pendingEpisodesRef.current = episodes
-      .filter((e) => e.jellyfinId)
-      .map((e) => ({
-        jellyfinId: e.jellyfinId!,
-        title: e.title,
-        episodeNumber: e.episodeNumber,
-        seasonNumber: e.seasonNumber,
-        playedPercentage: e.playedPercentage,
-      }))
+    // Build episode list for player navigation — use TMDB episode ID as fallback
+    pendingEpisodesRef.current = episodes.map((e) => ({
+      jellyfinId: e.jellyfinId || e.id,
+      title: e.title,
+      episodeNumber: e.episodeNumber,
+      seasonNumber: e.seasonNumber,
+      playedPercentage: e.playedPercentage,
+    }))
     pendingEpIdRef.current = ep.jellyfinId
     try {
       const res = await api.startStream({
