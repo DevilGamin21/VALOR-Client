@@ -7,6 +7,8 @@ export interface UnifiedMedia {
   overview: string
   year: number | null
   tmdbId?: number
+  /** TMDB rating (0–10, one decimal). */
+  rating?: number | null
   onDemand: boolean
   source: 'jellyfin' | 'tmdb'
   playedPercentage?: number
@@ -73,6 +75,14 @@ export interface PlayJob {
   seriesId?: string
   /** TMDB ID — used for progress reporting. */
   tmdbId?: number
+  /** Release year — used for progress reporting. */
+  year?: number | null
+  /** Season number of the current episode (TV only). */
+  seasonNumber?: number | null
+  /** Episode number of the current episode (TV only). */
+  episodeNumber?: number | null
+  /** Episode name/title (TV only). */
+  episodeName?: string | null
   /** IntroSkipper: intro segment start (seconds) */
   introStartSec?: number | null
   /** IntroSkipper: intro segment end (seconds) */
@@ -146,14 +156,4 @@ export interface EpisodeInfo {
   playedPercentage?: number
 }
 
-export interface P2PStatus {
-  infoHash: string
-  title: string
-  progress: number
-  downloadSpeed: number
-  bufferPercent: number
-  eta: number
-  ready: boolean
-  jellyfinItemId?: string
-  channelId?: number
-}
+

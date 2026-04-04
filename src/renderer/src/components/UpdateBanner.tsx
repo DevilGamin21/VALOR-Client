@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Download, RefreshCw, X, Loader2, AlertCircle } from 'lucide-react'
+
+const AUTO_RESTART_SECS = 5
 
 type UpdateState =
   | { stage: 'idle' }
@@ -17,12 +19,38 @@ interface Props {
 export default function UpdateBanner({ onVisibilityChange }: Props) {
   const [state, setState] = useState<UpdateState>({ stage: 'idle' })
   const [dismissed, setDismissed] = useState(false)
+  const [countdown, setCountdown] = useState(AUTO_RESTART_SECS)
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const visible = state.stage !== 'idle' && !dismissed
 
   useEffect(() => {
     onVisibilityChange?.(visible)
   }, [visible, onVisibilityChange])
+
+  const doInstall = useCallback(() => {
+    if (countdownRef.current) clearInterval(countdownRef.current)
+    window.electronAPI.updates.install()
+  }, [])
+
+  // Auto-restart countdown when update is ready
+  useEffect(() => {
+    if (state.stage !== 'ready') {
+      setCountdown(AUTO_RESTART_SECS)
+      if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null }
+      return
+    }
+    countdownRef.current = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          doInstall()
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => { if (countdownRef.current) clearInterval(countdownRef.current) }
+  }, [state.stage, doInstall])
 
   useEffect(() => {
     window.electronAPI.updates.onAvailable(({ version }) => {
@@ -46,9 +74,6 @@ export default function UpdateBanner({ onVisibilityChange }: Props) {
     setState((s) => s.stage === 'available' ? { stage: 'downloading', percent: 0, kbps: 0 } : s)
   }
 
-  function handleInstall() {
-    window.electronAPI.updates.install()
-  }
 
   return (
     <AnimatePresence>
@@ -74,7 +99,7 @@ export default function UpdateBanner({ onVisibilityChange }: Props) {
             <span className="text-xs text-white/70 flex-1 truncate">
               {state.stage === 'available'   && `Update v${state.version} — downloading…`}
               {state.stage === 'downloading' && `Downloading… ${state.percent}%  ${state.kbps} KB/s`}
-              {state.stage === 'ready'       && `v${state.version} ready — restart to update`}
+              {state.stage === 'ready'       && `v${state.version} ready — restarting in ${countdown}s`}
               {state.stage === 'error'       && `Update failed: ${state.message}`}
             </span>
 
@@ -96,11 +121,17 @@ export default function UpdateBanner({ onVisibilityChange }: Props) {
             {state.stage === 'ready' && (
               <button
                 data-focusable
-                onClick={handleInstall}
-                className="flex-shrink-0 px-3 py-1 rounded-full bg-green-600/80 hover:bg-green-500
-                           text-white text-xs font-medium transition-colors"
+                onClick={doInstall}
+                className="flex-shrink-0 relative px-3 py-1 rounded-full overflow-hidden
+                           text-white text-xs font-medium transition-colors hover:brightness-110"
               >
-                Restart
+                {/* Filling background — shrinks as countdown progresses */}
+                <span
+                  className="absolute inset-0 bg-green-600/80 rounded-full origin-left transition-[width] ease-linear"
+                  style={{ width: `${(countdown / AUTO_RESTART_SECS) * 100}%`, transitionDuration: '1s' }}
+                />
+                <span className="absolute inset-0 bg-green-900/40 rounded-full" />
+                <span className="relative">Restart ({countdown}s)</span>
               </button>
             )}
             {state.stage === 'error' && (

@@ -26,6 +26,7 @@ import type { OsSubtitleResult } from '@/services/api'
 import { API_BASE } from '@/services/api'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useSettings, QUALITY_BITRATES, type SubtitleSize } from '@/contexts/SettingsContext'
+import { useConnect } from '@/contexts/ConnectContext'
 import { useGamepad } from '@/hooks/useGamepad'
 
 interface Props {
@@ -92,6 +93,7 @@ const SUBTITLE_FONT_SIZE: Record<SubtitleSize, string> = {
 export default function VideoPlayer({ job, startPositionTicks, onClose }: Props) {
   const { episodeList, currentEpisodeId, updateJob, setEpisodeList, setCurrentEpisodeId } = usePlayer()
   const { autoplayNext, preferredAudioLang, preferredSubtitleLang, directPlay: settingsDirectPlay, defaultQuality, subtitleSize, subtitleBgOpacity, discordRPC } = useSettings()
+  const connectCtx = useConnect()
 
   const isDirectPlay = !!job.directStreamUrl
 
@@ -174,6 +176,9 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   // Subtitle rendering
   const [vttCues, setVttCues] = useState<VttCue[]>([])
   const [activeCue, setActiveCue] = useState<string | null>(null)
+  const [subOffset, setSubOffset] = useState(0) // seconds (+/- shift for subtitle timing)
+  const [editingOffset, setEditingOffset] = useState(false)
+  const [editingOffsetValue, setEditingOffsetValue] = useState('')
 
   // ─── Derived: next episode in list ─────────────────────────────────────────
   const nextEpisode = (() => {
@@ -352,29 +357,24 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       if (!durSecs) return
       const posTicks = Math.floor(curTimeSecs * 10_000_000)
       const durTicks = Math.floor(durSecs * 10_000_000)
+      // Single combined call: Jellyfin heartbeat + progress store save
+      const curEpInfo = episodeList.find(e => e.jellyfinId === currentEpisodeId)
       api.reportProgress({
         itemId: job.itemId,
         positionTicks: posTicks,
         durationTicks: durTicks,
         isPaused,
-        playSessionId: job.playSessionId
-      }).catch(() => {})
-      api.reportUserProgress({
-        mediaId: job.itemId,
-        positionTicks: posTicks,
-        durationTicks: durTicks,
+        playSessionId: job.playSessionId,
+        seriesId: job.seriesId,
         title: job.seriesName || job.title,
         posterUrl: job.posterUrl,
         type: job.seriesId ? 'tv' : job.type,
+        year: job.year,
         tmdbId: job.tmdbId,
-        seriesId: job.seriesId,
+        seasonNumber: curEpInfo?.seasonNumber ?? job.seasonNumber,
+        episodeNumber: curEpInfo?.episodeNumber ?? job.episodeNumber,
+        episodeName: curEpInfo?.title ?? job.episodeName,
       }).catch(() => {})
-      // Mark as played in Jellyfin when >90% watched
-      const pct = durTicks > 0 ? (posTicks / durTicks) * 100 : 0
-      if (pct > 90 && !markedPlayedRef.current) {
-        markedPlayedRef.current = true
-        api.markItemPlayed(job.itemId).catch(() => {})
-      }
     }, 10_000)
 
     return () => {
@@ -416,24 +416,23 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     const posTicks = Math.floor(curTimeSecs * 10_000_000)
     const durTicks = Math.floor(durSecs * 10_000_000)
     if (durTicks > 0) {
+      const curEpInfo = episodeList.find(e => e.jellyfinId === currentEpisodeId)
       api.reportProgress({
         itemId: job.itemId,
         positionTicks: posTicks,
         durationTicks: durTicks,
         isPaused: true,
         playSessionId: job.playSessionId,
-        isStopped: true
-      }).catch(() => {})
-      api.reportUserProgress({
-        mediaId: job.itemId,
-        positionTicks: posTicks,
-        durationTicks: durTicks,
+        isStopped: true,
+        seriesId: job.seriesId,
         title: job.seriesName || job.title,
         posterUrl: job.posterUrl,
         type: job.seriesId ? 'tv' : job.type,
+        year: job.year,
         tmdbId: job.tmdbId,
-        seriesId: job.seriesId,
-        isStopped: true,
+        seasonNumber: curEpInfo?.seasonNumber ?? job.seasonNumber,
+        episodeNumber: curEpInfo?.episodeNumber ?? job.episodeNumber,
+        episodeName: curEpInfo?.title ?? job.episodeName,
       }).catch(() => {})
     }
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
@@ -518,6 +517,127 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     }).catch(() => {})
   }
 
+  // ─── Media Session (OS media controls / keyboard media keys) ────────────────
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return
+    const curEp = episodeList.find(e => e.jellyfinId === currentEpisodeId)
+    const epLabel = curEp
+      ? `S${String(curEp.seasonNumber).padStart(2, '0')}E${String(curEp.episodeNumber).padStart(2, '0')} · ${curEp.title}`
+      : null
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: epLabel || job.title,
+      artist: job.seriesName || '',
+      album: 'VALOR',
+      artwork: job.posterUrl
+        ? [{ src: job.posterUrl, sizes: '500x750', type: 'image/jpeg' }]
+        : [],
+    })
+
+    navigator.mediaSession.setActionHandler('play', () => videoRef.current?.play())
+    navigator.mediaSession.setActionHandler('pause', () => videoRef.current?.pause())
+    navigator.mediaSession.setActionHandler('seekbackward', () => {
+      if (videoRef.current) videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10)
+    })
+    navigator.mediaSession.setActionHandler('seekforward', () => {
+      if (videoRef.current) videoRef.current.currentTime += 10
+    })
+
+    return () => {
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = null
+        navigator.mediaSession.setActionHandler('play', null)
+        navigator.mediaSession.setActionHandler('pause', null)
+        navigator.mediaSession.setActionHandler('seekbackward', null)
+        navigator.mediaSession.setActionHandler('seekforward', null)
+      }
+    }
+  }, [job.title, job.seriesName, job.posterUrl, currentEpisodeId, episodeList])
+
+  // ─── Connect: remote command handler ────────────────────────────────────────
+  useEffect(() => {
+    if (!connectCtx?.setCommandHandler) return
+    connectCtx.setCommandHandler((command, payload) => {
+      const video = videoRef.current
+      switch (command) {
+        case 'play': video?.play(); break
+        case 'pause': video?.pause(); break
+        case 'seek':
+          if (video && typeof payload.positionSeconds === 'number') video.currentTime = payload.positionSeconds
+          break
+        case 'setQuality':
+          if (typeof payload.quality === 'string') {
+            const idx = QUALITY_PRESETS.findIndex(q => q.label.toLowerCase() === (payload.quality as string).toLowerCase())
+            if (idx >= 0) switchQuality(QUALITY_PRESETS[idx], idx)
+          }
+          break
+        case 'setAudio':
+          if (typeof payload.audioIndex === 'number') {
+            const track = job.audioTracks.find(t => t.index === payload.audioIndex)
+            if (track) switchAudio(track)
+          }
+          break
+        case 'setSubtitle':
+          if (payload.subtitleIndex === -1 || payload.subtitleIndex === null) {
+            switchSubtitle(null)
+          } else if (typeof payload.subtitleIndex === 'number') {
+            const track = job.subtitleTracks.find(t => t.index === payload.subtitleIndex)
+            if (track) switchSubtitle(track)
+          }
+          break
+        case 'resume':
+          if (video && typeof payload.positionSeconds === 'number') {
+            video.currentTime = payload.positionSeconds
+            video.play()
+          }
+          break
+        case 'getState': connectPushRef.current?.(); break
+      }
+    })
+    return () => { connectCtx.setCommandHandler(null) }
+  }, [connectCtx])
+
+  // ─── Connect: push state every 5s while playing ────────────────────────────
+  const connectPushRef = useRef<(() => void) | null>(null)
+  useEffect(() => {
+    if (!connectCtx?.pushState) return
+    const push = () => {
+      const video = videoRef.current
+      const curEp = episodeList.find(e => e.jellyfinId === currentEpisodeId)
+      connectCtx.pushState({
+        playing: video ? !video.paused : false,
+        positionSeconds: video ? Math.floor(video.currentTime) : 0,
+        durationSeconds: video ? Math.floor(isFinite(video.duration) ? video.duration : (job.durationTicks ?? 0) / 10_000_000) : 0,
+        quality: QUALITY_PRESETS[activeQuality]?.label ?? 'Original',
+        audioTracks: job.audioTracks.map(t => ({
+          index: t.index, label: t.label, language: t.language, active: t.index === activeAudio,
+        })),
+        subtitleTracks: job.subtitleTracks.map(t => ({
+          index: t.index, label: t.label, language: t.language, active: t.index === activeSub, isImageBased: t.isImageBased,
+        })),
+        mediaMeta: {
+          title: job.seriesName || job.title,
+          tmdbId: job.tmdbId,
+          type: job.seriesId ? 'tv' : job.type,
+          seasonNumber: curEp?.seasonNumber ?? job.seasonNumber ?? undefined,
+          episodeNumber: curEp?.episodeNumber ?? job.episodeNumber ?? undefined,
+          posterUrl: job.posterUrl,
+        },
+      })
+    }
+    connectPushRef.current = push
+    push() // push immediately on mount
+    const interval = setInterval(push, 5000)
+    return () => { clearInterval(interval); connectPushRef.current = null }
+  }, [connectCtx, job, activeAudio, activeSub, activeQuality, currentEpisodeId, episodeList])
+
+  // Push idle state on unmount
+  useEffect(() => {
+    return () => {
+      connectCtx?.pushState({ playing: false, mediaMeta: null, positionSeconds: 0, durationSeconds: 0 })
+    }
+  }, [connectCtx])
+
   // ─── Video event handlers ───────────────────────────────────────────────────
 
   function onTimeUpdate() {
@@ -525,10 +645,11 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     if (!video) return
     setCurrentTime(video.currentTime)
 
-    // Subtitle cue matching
+    // Subtitle cue matching (adjusted by offset)
     if (vttCues.length) {
+      const adjusted = video.currentTime + subOffset
       const cue = vttCues.find(
-        (c) => video.currentTime >= c.start && video.currentTime <= c.end
+        (c) => adjusted >= c.start && adjusted <= c.end
       )
       setActiveCue(cue?.text ?? null)
     }
@@ -580,11 +701,8 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   function onPlaying() { setBuffering(false) }
 
   function onEnded() {
-    // Mark as played when video reaches the end
-    if (!markedPlayedRef.current) {
-      markedPlayedRef.current = true
-      api.markItemPlayed(job.itemId).catch(() => {})
-    }
+    // Mark completion flag (actual completion handled server-side by /user-progress)
+    markedPlayedRef.current = true
     // Sleep timer takes priority over autoplay
     if (sleepOption === 'end') {
       handleClose()
@@ -772,14 +890,40 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     const v = videoRef.current
     if (v && !v.paused) v.pause()
 
+    // Report progress for the episode we're leaving before switching
+    if (v && job.seriesId) {
+      const posTicks = Math.floor(v.currentTime * 10_000_000)
+      const durSecs = isFinite(v.duration) && v.duration > 0 ? v.duration : (job.durationTicks ?? 0) / 10_000_000
+      const durTicks = Math.floor(durSecs * 10_000_000)
+      if (durTicks > 0) {
+        api.reportProgress({
+          itemId: ep.jellyfinId,
+          positionTicks: 0,
+          durationTicks: durTicks,
+          isPaused: true,
+          playSessionId: job.playSessionId,
+          seriesId: job.seriesId,
+          title: job.seriesName || job.title,
+          posterUrl: job.posterUrl,
+          type: 'tv',
+          year: job.year,
+          tmdbId: job.tmdbId,
+          seasonNumber: ep.seasonNumber,
+          episodeNumber: ep.episodeNumber,
+          episodeName: ep.title,
+        }).catch(() => {})
+      }
+    }
+
     setShowEpisodePanel(false)
     setBuffering(true)
     setLocalEpId(ep.jellyfinId)
     try {
+      // Built-in player never uses directPlay — Chromium can't decode DTS/AC3/TrueHD
       const newJob = await api.startPlayJob({
         itemId: ep.jellyfinId,
-        directPlay: settingsDirectPlay,
-        maxBitrate: settingsDirectPlay ? undefined : QUALITY_BITRATES[defaultQuality],
+        directPlay: false,
+        maxBitrate: QUALITY_BITRATES[defaultQuality],
         previousPlaySessionId: job.playSessionId || undefined,
         previousDeviceId: job.deviceId,
       })
@@ -815,12 +959,14 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       const curEp = job.type === 'tv' && episodeList.length > 0
         ? episodeList.find((e) => e.jellyfinId === localEpId)
         : null
+      const season = curEp?.seasonNumber ?? job.seasonNumber
+      const episode = curEp?.episodeNumber ?? job.episodeNumber
       const results = await api.searchSubtitles({
         query: query || osQuery.trim() || undefined,
         tmdbId: job.tmdbId ?? undefined,
         type: job.type === 'tv' ? 'tv' : 'movie',
-        season: curEp?.seasonNumber,
-        episode: curEp?.episodeNumber,
+        season,
+        episode,
       })
       // Sort by download count descending (most popular first)
       results.sort((a, b) => b.downloadCount - a.downloadCount)
@@ -840,7 +986,17 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     if (osFetchedRef.current) return
     if (job.type === 'tv' && episodeList.length === 0) return // wait for episode list
     osFetchedRef.current = true
-    searchOsSubs(job.seriesName || job.title)
+    // Build query: include SxxExx for TV shows so OpenSubtitles matches the right episode
+    let autoQuery = job.seriesName || job.title
+    if (job.type === 'tv') {
+      const curEp = episodeList.find((e) => e.jellyfinId === localEpId)
+      const s = curEp?.seasonNumber ?? job.seasonNumber
+      const e = curEp?.episodeNumber ?? job.episodeNumber
+      if (s != null && e != null) {
+        autoQuery += ` S${String(s).padStart(2, '0')}E${String(e).padStart(2, '0')}`
+      }
+    }
+    searchOsSubs(autoQuery)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job.itemId, episodeList.length])
 
@@ -1763,6 +1919,60 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Subtitle timing offset */}
+          <div className="px-4 py-2.5 border-t border-white/10">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-white/40">Offset</span>
+              <div className="flex items-center gap-1">
+                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v - 0.5) * 100) / 100)}
+                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-[10px] transition">-500</button>
+                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v - 0.05) * 100) / 100)}
+                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-[10px] transition">-50</button>
+                {editingOffset ? (
+                  <input
+                    autoFocus
+                    value={editingOffsetValue}
+                    onChange={(e) => setEditingOffsetValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const parsed = parseFloat(editingOffsetValue)
+                        if (!isNaN(parsed)) setSubOffset(Math.round(parsed / 1000 * 100) / 100)
+                        setEditingOffset(false)
+                      } else if (e.key === 'Escape') {
+                        setEditingOffset(false)
+                      }
+                    }}
+                    onBlur={() => {
+                      const parsed = parseFloat(editingOffsetValue)
+                      if (!isNaN(parsed)) setSubOffset(Math.round(parsed / 1000 * 100) / 100)
+                      setEditingOffset(false)
+                    }}
+                    className="w-16 text-center text-xs font-mono bg-white/10 border border-white/20 rounded px-1 py-0.5 text-white outline-none"
+                  />
+                ) : (
+                  <button
+                    data-focusable
+                    onClick={() => { setEditingOffset(true); setEditingOffsetValue(String(Math.round(subOffset * 1000))) }}
+                    className="w-16 text-center text-xs text-white/70 tabular-nums font-mono py-0.5 rounded hover:bg-white/10 transition cursor-text"
+                    title="Click to type a value in ms"
+                  >
+                    {subOffset >= 0 ? '+' : ''}{Math.round(subOffset * 1000)}ms
+                  </button>
+                )}
+                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v + 0.05) * 100) / 100)}
+                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-[10px] transition">+50</button>
+                <button data-focusable onClick={() => setSubOffset((v) => Math.round((v + 0.5) * 100) / 100)}
+                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-[10px] transition">+500</button>
+              </div>
+            </div>
+            {subOffset !== 0 && (
+              <button data-focusable onClick={() => setSubOffset(0)}
+                className="mt-1.5 w-full text-center text-[10px] text-white/30 hover:text-white/60 transition">
+                Reset to 0ms
+              </button>
+            )}
           </div>
         </motion.div>
       )}

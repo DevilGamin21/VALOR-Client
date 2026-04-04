@@ -1,6 +1,9 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, ReactNode } from 'react'
 import type { PlayJob, EpisodeInfo } from '@/types/media'
-import { useSettings } from '@/contexts/SettingsContext'
+import * as api from '@/services/api'
+import { useSettings, QUALITY_BITRATES } from '@/contexts/SettingsContext'
+import { useConnect } from '@/contexts/ConnectContext'
+import { platform } from '@/platform'
 
 interface PlayerState {
   job: PlayJob | null
@@ -37,7 +40,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const cleanupMpv = useCallback((_reportStop: boolean) => {
     // Note: the overlay window handles stop-reporting, heartbeat, Discord, and mark-played.
     // PlayerContext just resets its own state when mpv exits.
-    window.electronAPI.mpv.removeAllListeners()
+    if (platform.supportsMpv) window.electronAPI.mpv.removeAllListeners()
     mpvTimeRef.current = 0
     mpvDurationRef.current = 0
     mpvJobRef.current = null
@@ -102,7 +105,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setEpisodeList(episodes)
     setCurrentEpisodeId(epId)
 
-    if (playerEngine === 'mpv') {
+    if (playerEngine === 'mpv' && platform.supportsMpv) {
       // mpv mode: launch mpv directly, don't open VideoPlayer overlay
       console.log('[PlayerContext] playerEngine=mpv, calling launchMpv')
       launchMpv(newJob, ticks, episodes, epId)
@@ -114,7 +117,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [playerEngine, launchMpv])
 
   const closePlayer = useCallback(() => {
-    if (mpvActive) {
+    if (mpvActive && platform.supportsMpv) {
       window.electronAPI.mpv.quit().catch(() => {})
       cleanupMpv(true)
       return
@@ -129,9 +132,140 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (mpvJobRef.current) mpvJobRef.current = newJob
   }, [])
 
+  // ── Connect: mpv state push + command relay ──────────────────────────────
+  const connectCtx = useConnect()
+
+  // Push mpv state to Connect every 5s while mpv is active
+  useEffect(() => {
+    if (!mpvActive || !connectCtx?.pushState) return
+    const push = () => {
+      const j = mpvJobRef.current
+      if (!j) return
+      connectCtx.pushState({
+        playing: true, // if mpvActive, it's playing (paused state comes from overlay)
+        positionSeconds: Math.floor(mpvTimeRef.current),
+        durationSeconds: Math.floor(mpvDurationRef.current),
+        mediaMeta: {
+          title: j.seriesName || j.title,
+          tmdbId: j.tmdbId,
+          type: j.seriesId ? 'tv' : j.type,
+          seasonNumber: j.seasonNumber ?? undefined,
+          episodeNumber: j.episodeNumber ?? undefined,
+          posterUrl: j.posterUrl,
+        },
+      })
+    }
+    push()
+    const interval = setInterval(push, 5000)
+    return () => clearInterval(interval)
+  }, [mpvActive, connectCtx])
+
+  // Push idle when mpv stops
+  useEffect(() => {
+    if (mpvActive) return
+    connectCtx?.pushState({ playing: false, mediaMeta: null, positionSeconds: 0, durationSeconds: 0 })
+  }, [mpvActive, connectCtx])
+
+  // Handle remote commands for mpv
+  useEffect(() => {
+    if (!mpvActive || !connectCtx?.setCommandHandler) return
+    connectCtx.setCommandHandler((command, payload) => {
+      switch (command) {
+        case 'play': window.electronAPI.mpv.resume().catch(() => {}); break
+        case 'pause': window.electronAPI.mpv.pause().catch(() => {}); break
+        case 'seek':
+          if (typeof payload.positionSeconds === 'number') {
+            window.electronAPI.mpv.seekAbsolute(payload.positionSeconds).catch(() => {})
+          }
+          break
+        case 'resume':
+          if (typeof payload.positionSeconds === 'number') {
+            window.electronAPI.mpv.seekAbsolute(payload.positionSeconds).catch(() => {})
+            window.electronAPI.mpv.resume().catch(() => {})
+          }
+          break
+        case 'getState': break // state is pushed on interval
+      }
+    })
+    return () => { connectCtx.setCommandHandler(null) }
+  }, [mpvActive, connectCtx])
+
+  // ── Connect: handle playMedia when idle (host mode) ──────────────────────
+  const { directPlay, defaultQuality } = useSettings()
+  useEffect(() => {
+    // Only register idle handler when no player is active
+    // (when mpv is active, the mpv command handler takes over)
+    if (mpvActive || isOpen) return
+    if (!connectCtx?.setCommandHandler) return
+
+    connectCtx.setCommandHandler((command, payload) => {
+      if (command !== 'playMedia') return
+      const { tmdbId, type, title, year, season, episode, startPositionTicks, isAnime } = payload as {
+        tmdbId?: number; type?: string; title?: string; year?: number
+        season?: number; episode?: number; startPositionTicks?: number; isAnime?: boolean
+      }
+      if (!tmdbId) return
+      console.log('[Connect] Received playMedia:', title, season && episode ? `S${season}E${episode}` : '')
+
+      // Start the stream via the on-demand flow
+      api.startStream({
+        tmdbId,
+        type: (type as 'movie' | 'tv') || 'movie',
+        title: title || 'Unknown',
+        year,
+        season,
+        episode,
+        isAnime,
+      }).then(({ streamId }) => {
+        // Poll for ready
+        const poll = setInterval(async () => {
+          try {
+            const status = await api.getStreamStatus(streamId)
+            if (status.phase === 'ready') {
+              clearInterval(poll)
+              const playJob: PlayJob = {
+                itemId: status.itemId || status.jellyfinItemId || '',
+                hlsUrl: status.hlsUrl || '',
+                directStreamUrl: status.directStreamUrl,
+                playSessionId: status.playSessionId || null,
+                deviceId: status.deviceId,
+                audioTracks: status.audioTracks || [],
+                subtitleTracks: (status.subtitleTracks || []).map(t => ({
+                  ...t,
+                  vttUrl: t.vttUrl ?? (t as Record<string, unknown>).url as string | null ?? null,
+                })),
+                title: status.title || title || 'Unknown',
+                seriesName: status.seriesName,
+                type: status.type || type || 'movie',
+                durationTicks: status.durationTicks,
+                introStartSec: status.introStartSec,
+                introEndSec: status.introEndSec,
+                creditsStartSec: status.creditsStartSec,
+                mpvOptions: status.mpvOptions,
+                tmdbId,
+                year,
+                seasonNumber: season,
+                episodeNumber: episode,
+              }
+              openPlayer(playJob, startPositionTicks || 0)
+            } else if (status.phase === 'error') {
+              clearInterval(poll)
+              console.error('[Connect] playMedia stream error:', status.error || status.message)
+            }
+          } catch {
+            clearInterval(poll)
+          }
+        }, 1500)
+      }).catch((err) => {
+        console.error('[Connect] playMedia failed:', err)
+      })
+    })
+    return () => { connectCtx.setCommandHandler(null) }
+  }, [mpvActive, isOpen, connectCtx, openPlayer])
+
   // Cleanup on unmount
   useEffect(() => {
-    return () => { window.electronAPI.mpv.removeAllListeners() }
+    return () => { if (platform.supportsMpv) window.electronAPI.mpv.removeAllListeners() }
   }, [])
 
   return (

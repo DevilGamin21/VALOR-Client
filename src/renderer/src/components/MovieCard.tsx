@@ -1,14 +1,15 @@
 import { motion } from 'framer-motion'
-import { Play, Plus, Check } from 'lucide-react'
+import { Play, Plus, Check, X } from 'lucide-react'
 import { useWatchlist } from '@/contexts/WatchlistContext'
 import type { UnifiedMedia } from '@/types/media'
 
 interface Props {
   item: UnifiedMedia
   onPlay: (item: UnifiedMedia) => void
+  onRemove?: (item: UnifiedMedia) => void
 }
 
-export default function MovieCard({ item, onPlay }: Props) {
+export default function MovieCard({ item, onPlay, onRemove }: Props) {
   const { ids, toggle } = useWatchlist()
   const inWatchlist = ids.has(item.id)
 
@@ -61,6 +62,20 @@ export default function MovieCard({ item, onPlay }: Props) {
             <Play size={16} fill="black" className="text-black ml-0.5" />
           </div>
         </div>
+
+        {/* Remove from Continue Watching */}
+        {onRemove && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onRemove(item) }}
+            className="absolute top-2 left-2 z-20 w-7 h-7 rounded-full
+                       bg-black/60 border border-white/20
+                       flex items-center justify-center
+                       opacity-0 group-hover/card:opacity-100 transition-opacity
+                       hover:bg-red-500/40"
+          >
+            <X size={12} className="text-white" />
+          </button>
+        )}
 
         {/* Watchlist toggle */}
         <button

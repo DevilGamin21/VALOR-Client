@@ -105,9 +105,17 @@ export class MpvPlayer {
 
     if (opts.wid) {
       // Embed mpv as a child window inside the given HWND.
-      // Use --vo=direct3d (D3D9) so mpv's renderer doesn't conflict with
-      // Chromium's D3D11 compositor — this prevents the invisible-video bug.
-      args.push(`--wid=${opts.wid}`, '--vo=direct3d')
+      // Use gpu output with D3D11 context for proper color management,
+      // HDR tone mapping, and 10-bit support. mpv gets its own HWND
+      // so it doesn't conflict with Chromium's compositor.
+      args.push(
+        `--wid=${opts.wid}`,
+        '--vo=gpu',
+        '--gpu-context=d3d11',
+        '--target-colorspace-hint',
+        '--tone-mapping=auto',
+        '--hdr-compute-peak=auto',
+      )
     } else {
       // Standalone borderless fullscreen window — overlay sits on top with controls
       args.push('--force-window=yes', '--window-maximized=yes', '--no-border')

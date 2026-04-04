@@ -263,6 +263,9 @@ ipcMain.handle('system:sleep', () => {
   }
 })
 
+ipcMain.handle('system:hostname', () => require('os').hostname())
+ipcMain.handle('system:platform', () => process.platform)
+
 // ─── Discord IPC ──────────────────────────────────────────────────────────────
 ipcMain.handle('discord:setActivity', async (_e, activity: Presence) => {
   if (!discordReady || !discordRpc) return
@@ -321,7 +324,6 @@ function createPlayerWindow(): void {
     backgroundColor: '#00000000',
     frame: false,
     resizable: false,
-    maximizable: false,
     show: true,
     skipTaskbar: false,
     hasShadow: false,
@@ -336,7 +338,6 @@ function createPlayerWindow(): void {
     transparent: true,
     frame: false,
     resizable: false,
-    maximizable: false,
     parent: playerWindow,
     skipTaskbar: true,
     hasShadow: false,
@@ -353,6 +354,27 @@ function createPlayerWindow(): void {
 
   // Click-through: transparent areas pass events to mpv (inside playerWindow)
   overlayWindow.setIgnoreMouseEvents(true, { forward: true })
+
+  // Sync both windows when moved between monitors (Win+Shift+Arrow)
+  let syncingWindows = false
+  function syncWindowsToDisplay(movedWindow: BrowserWindow, otherWindow: BrowserWindow | null) {
+    if (syncingWindows || !otherWindow || otherWindow.isDestroyed()) return
+    syncingWindows = true
+    const bounds = movedWindow.getBounds()
+    const targetDisplay = screen.getDisplayMatching(bounds)
+    const otherBounds = otherWindow.getBounds()
+    const otherDisplay = screen.getDisplayMatching(otherBounds)
+    if (targetDisplay.id !== otherDisplay.id) {
+      const { x: dx, y: dy } = targetDisplay.bounds
+      otherWindow.setBounds({ x: dx, y: dy, width: targetDisplay.bounds.width, height: targetDisplay.bounds.height })
+      otherWindow.maximize()
+      // Re-maximize the moved window too in case it was unmaximized during the move
+      movedWindow.maximize()
+    }
+    syncingWindows = false
+  }
+  playerWindow.on('move', () => syncWindowsToDisplay(playerWindow!, overlayWindow))
+  overlayWindow.on('move', () => syncWindowsToDisplay(overlayWindow!, playerWindow))
 
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
   if (rendererUrl) {

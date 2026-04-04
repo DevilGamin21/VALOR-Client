@@ -222,7 +222,18 @@ export default function PlayerOverlay() {
 
   // ── Derived helpers ─────────────────────────────────────────────────────
   const job = currentJob?.job ?? payload?.job
-  const title = currentJob?.title ?? payload?.title ?? ''
+  const rawTitle = currentJob?.title ?? payload?.title ?? ''
+  const title = (() => {
+    if (!job || job.type !== 'tv') return rawTitle
+    const s = job.seasonNumber
+    const e = job.episodeNumber
+    const epName = job.episodeName
+    if (s != null && e != null) {
+      const label = `S${String(s).padStart(2, '0')}E${String(e).padStart(2, '0')}`
+      return `${rawTitle} · ${label}${epName ? ` · ${epName}` : ''}`
+    }
+    return rawTitle
+  })()
   const isDirectPlay = !!(job?.directStreamUrl)
   const avPrefsKey = job?.seriesId || job?.itemId || ''
 
@@ -315,33 +326,25 @@ export default function PlayerOverlay() {
     }
   }, [time, duration, nextEpisode, autoplayNext, upNextVisible])
 
-  // ── Auto-fetch episode list for Continue Watching ───────────────────────
+  // ── Auto-fetch episode list from TMDB ────────────────────────────────────
   useEffect(() => {
-    if (!job || episodeList.length > 0 || job.type !== 'tv' || !job.seriesId) return
+    if (!job || episodeList.length > 0 || job.type !== 'tv' || !job.tmdbId) return
+    const seasonNum = job.seasonNumber
+    if (seasonNum == null) return
     let cancelled = false
     ;(async () => {
       try {
-        const seasons = await api.getSeasons(job.seriesId!)
-        if (cancelled || seasons.length === 0) return
-        for (const season of seasons) {
-          const eps = await api.getEpisodes(job.seriesId!, season.id)
-          if (cancelled) return
-          const match = eps.find((e) => e.jellyfinId === job.itemId)
-          if (match) {
-            const epInfos: EpisodeInfo[] = eps
-              .filter((e) => e.onDemand && e.jellyfinId)
-              .map((e) => ({
-                jellyfinId: e.jellyfinId!,
-                title: e.name,
-                episodeNumber: e.episodeNumber,
-                seasonNumber: e.seasonNumber,
-                playedPercentage: e.playedPercentage,
-              }))
-            setEpisodeListState(epInfos)
-            setLocalEpId(job.itemId)
-            break
-          }
-        }
+        const eps = await api.getTmdbEpisodes(job.tmdbId!, seasonNum)
+        if (cancelled || eps.length === 0) return
+        const epInfos: EpisodeInfo[] = eps.map((e) => ({
+          jellyfinId: e.id, // use TMDB ep id as the identifier
+          title: e.title,
+          episodeNumber: e.episodeNumber,
+          seasonNumber: e.seasonNumber,
+          playedPercentage: undefined,
+        }))
+        setEpisodeListState(epInfos)
+        if (job.itemId) setLocalEpId(job.itemId)
       } catch {}
     })()
     return () => { cancelled = true }
@@ -380,29 +383,36 @@ export default function PlayerOverlay() {
   // ── OpenSubtitles auto-populate query ───────────────────────────────────
   useEffect(() => {
     if (!job) return
-    if (job.type === 'tv' && episodeList.length > 0) {
-      const ep = episodeList.find((e) => e.jellyfinId === localEpId)
-      if (ep) {
-        const s = String(ep.seasonNumber).padStart(2, '0')
-        const e = String(ep.episodeNumber).padStart(2, '0')
-        setOsQuery(`${job.seriesName || job.title} S${s}E${e}`)
-        return
+    let q = job.seriesName || job.title
+    if (job.type === 'tv') {
+      const s = job.seasonNumber
+      const e = job.episodeNumber
+      if (s != null && e != null) {
+        q += ` S${String(s).padStart(2, '0')}E${String(e).padStart(2, '0')}`
       }
     }
-    setOsQuery(job.seriesName || job.title)
+    setOsQuery(q)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job?.itemId, localEpId])
+  }, [job?.itemId])
 
   // ── OpenSubtitles auto-fetch ────────────────────────────────────────────
   const osFetchedRef = useRef(false)
   useEffect(() => {
     if (osFetchedRef.current) return
     if (!job) return
-    if (job.type === 'tv' && episodeList.length === 0) return
     osFetchedRef.current = true
-    searchOsSubs(job.seriesName || job.title)
+    // Build query: include SxxExx for TV shows so OpenSubtitles matches the right episode
+    let autoQuery = job.seriesName || job.title
+    if (job.type === 'tv') {
+      const s = job.seasonNumber
+      const e = job.episodeNumber
+      if (s != null && e != null) {
+        autoQuery += ` S${String(s).padStart(2, '0')}E${String(e).padStart(2, '0')}`
+      }
+    }
+    searchOsSubs(autoQuery)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job?.itemId, episodeList.length])
+  }, [job?.itemId])
 
   useEffect(() => { osFetchedRef.current = false }, [localEpId])
 
@@ -431,28 +441,23 @@ export default function PlayerOverlay() {
       if (!dur) return
       const posTicks = Math.floor(curTime * 10_000_000)
       const durTicks = Math.floor(dur * 10_000_000)
+      // Single combined call: Jellyfin heartbeat + progress store save
+      const curEpInfo = episodeList.find(e => e.jellyfinId === localEpId)
       api.reportProgress({
         itemId: job.itemId,
         positionTicks: posTicks,
         durationTicks: durTicks,
         isPaused: paused,
         playSessionId: job.playSessionId ?? '',
-      }).catch(() => {})
-      api.reportUserProgress({
-        mediaId: job.itemId,
-        positionTicks: posTicks,
-        durationTicks: durTicks,
+        seriesId: job.seriesId,
         title: job.seriesName || job.title,
         posterUrl: job.posterUrl,
         type: job.seriesId ? 'tv' : job.type,
         tmdbId: job.tmdbId,
-        seriesId: job.seriesId,
+        seasonNumber: curEpInfo?.seasonNumber ?? job.seasonNumber,
+        episodeNumber: curEpInfo?.episodeNumber ?? job.episodeNumber,
+        episodeName: curEpInfo?.title ?? job.episodeName,
       }).catch(() => {})
-      const pct = durTicks > 0 ? (posTicks / durTicks) * 100 : 0
-      if (pct > 90 && !markedPlayedRef.current) {
-        markedPlayedRef.current = true
-        api.markItemPlayed(job.itemId).catch(() => {})
-      }
     }, 10_000)
     return () => { if (heartbeatRef.current) clearInterval(heartbeatRef.current) }
   }, [job, paused])
@@ -522,10 +527,8 @@ export default function PlayerOverlay() {
   // ── Ended handler: sleep / Up Next / mark played ────────────────────────
   useEffect(() => {
     if (!ended) return
-    if (!markedPlayedRef.current && job) {
-      markedPlayedRef.current = true
-      api.markItemPlayed(job.itemId).catch(() => {})
-    }
+    // Mark completion flag (actual completion handled server-side by /user-progress)
+    markedPlayedRef.current = true
     if (sleepOption === 'end') {
       handleClose()
       setTimeout(() => window.electronAPI.system.sleep().catch(() => {}), 800)
@@ -549,6 +552,7 @@ export default function PlayerOverlay() {
   const handleClose = useCallback(async () => {
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
     if (job) {
+      const curEpInfo = episodeList.find(e => e.jellyfinId === localEpId)
       api.reportProgress({
         itemId: job.itemId,
         positionTicks: Math.floor(timeRef.current * 10_000_000),
@@ -556,17 +560,14 @@ export default function PlayerOverlay() {
         isPaused: true,
         playSessionId: job.playSessionId ?? '',
         isStopped: true,
-      }).catch(() => {})
-      api.reportUserProgress({
-        mediaId: job.itemId,
-        positionTicks: Math.floor(timeRef.current * 10_000_000),
-        durationTicks: Math.floor(durationRef.current * 10_000_000),
+        seriesId: job.seriesId,
         title: job.seriesName || job.title,
         posterUrl: job.posterUrl,
         type: job.seriesId ? 'tv' : job.type,
         tmdbId: job.tmdbId,
-        seriesId: job.seriesId,
-        isStopped: true,
+        seasonNumber: curEpInfo?.seasonNumber ?? job.seasonNumber,
+        episodeNumber: curEpInfo?.episodeNumber ?? job.episodeNumber,
+        episodeName: curEpInfo?.title ?? job.episodeName,
       }).catch(() => {})
     }
     if (discordRPC) window.electronAPI.discord.clearActivity().catch(() => {})
@@ -741,12 +742,14 @@ export default function PlayerOverlay() {
       const curEp = job?.type === 'tv' && episodeList.length > 0
         ? episodeList.find((e) => e.jellyfinId === localEpId)
         : null
+      const season = curEp?.seasonNumber ?? job?.seasonNumber
+      const episode = curEp?.episodeNumber ?? job?.episodeNumber
       const results = await api.searchSubtitles({
         query: query || osQuery.trim() || undefined,
         tmdbId: job?.tmdbId ?? undefined,
         type: job?.type === 'tv' ? 'tv' : 'movie',
-        season: curEp?.seasonNumber,
-        episode: curEp?.episodeNumber,
+        season,
+        episode,
       })
       results.sort((a, b) => b.downloadCount - a.downloadCount)
       setOsResults(results)

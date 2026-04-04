@@ -7,9 +7,10 @@ interface Props {
   title: string
   items: UnifiedMedia[]
   onPlay: (item: UnifiedMedia) => void
+  onRemove?: (item: UnifiedMedia) => void
 }
 
-export default function MediaRow({ title, items, onPlay }: Props) {
+export default function MediaRow({ title, items, onPlay, onRemove }: Props) {
   const rowRef = useRef<HTMLDivElement>(null)
 
   function scroll(dir: 'left' | 'right') {
@@ -40,7 +41,7 @@ export default function MediaRow({ title, items, onPlay }: Props) {
           style={{ scrollbarWidth: 'none' }}
         >
           {items.map((item) => (
-            <MovieCard key={`${item.id}-${item.type}`} item={item} onPlay={onPlay} />
+            <MovieCard key={`${item.id}-${item.type}`} item={item} onPlay={onPlay} onRemove={onRemove} />
           ))}
         </div>
 

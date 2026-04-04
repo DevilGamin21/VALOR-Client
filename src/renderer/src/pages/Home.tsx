@@ -7,17 +7,19 @@ import MediaRow from '@/components/MediaRow'
 import MovieCard from '@/components/MovieCard'
 import PlayModal from '@/components/PlayModal'
 import DynamicHero from '@/components/DynamicHero'
-import AnimeToggle from '@/components/AnimeToggle'
-import OnDemandToggle from '@/components/OnDemandToggle'
+import TvMediaRow from '@/components/tv/TvMediaRow'
+import TvMediaCard from '@/components/tv/TvMediaCard'
+import TvHero from '@/components/tv/TvHero'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useSettings, QUALITY_BITRATES } from '@/contexts/SettingsContext'
-import type { UnifiedMedia, TrendingResponse, ProgressItem } from '@/types/media'
+import { platform } from '@/platform'
+import { isTv } from '@/hooks/usePlatform'
+import type { UnifiedMedia, TrendingResponse, ProgressItem, PlayJob } from '@/types/media'
 
 function mapContinueWatching(cw: ProgressItem[]): UnifiedMedia[] {
   const seen = new Set<string>()
   const items: UnifiedMedia[] = []
   for (const p of cw) {
-    // For TV: use seriesId as dedup key (backend keys by series, but guard against stale episode entries)
     const dedup = (p.type === 'tv' && p.seriesId) ? p.seriesId : p.mediaId
     if (seen.has(dedup)) continue
     seen.add(dedup)
@@ -31,7 +33,7 @@ function mapContinueWatching(cw: ProgressItem[]): UnifiedMedia[] {
       year: p.year,
       tmdbId: p.tmdbId,
       onDemand: true,
-      source: 'jellyfin' as const,
+      source: 'tmdb' as const,
       playedPercentage: p.percent,
       positionTicks: p.positionTicks,
       seriesId: p.seriesId,
@@ -44,14 +46,45 @@ function mapContinueWatching(cw: ProgressItem[]): UnifiedMedia[] {
   return items
 }
 
+// Platform-aware row component
+function Row({ title, items, onPlay, onRemove }: { title: string; items: UnifiedMedia[]; onPlay: (i: UnifiedMedia) => void; onRemove?: (i: UnifiedMedia) => void }) {
+  return isTv
+    ? <TvMediaRow title={title} items={items} onPlay={onPlay} />
+    : <MediaRow title={title} items={items} onPlay={onPlay} onRemove={onRemove} />
+}
+
+// Platform-aware card component
+function Card({ item, onPlay }: { item: UnifiedMedia; onPlay: (i: UnifiedMedia) => void }) {
+  return isTv
+    ? <TvMediaCard item={item} onPlay={onPlay} />
+    : <MovieCard item={item} onPlay={onPlay} />
+}
+
+// Platform-aware hero component
+function Hero({ items, onSelect }: { items: UnifiedMedia[]; onSelect: (i: UnifiedMedia) => void }) {
+  return isTv
+    ? <TvHero items={items} onSelect={onSelect} />
+    : <DynamicHero items={items} onSelect={onSelect} />
+}
+
+const RESUME_PHASE_LABELS: Record<string, string> = {
+  starting: 'Starting…',
+  resolving: 'Resolving…',
+  checking_cache: 'Checking cache…',
+  scraping: 'Searching torrents…',
+  adding_to_rd: 'Adding to Real-Debrid…',
+  downloading: 'Downloading…',
+  unrestricting: 'Getting stream URL…',
+  preparing: 'Preparing stream…',
+  building: 'Building session…',
+}
+
 export default function Home() {
   const { isOpen, openPlayer } = usePlayer()
-  const { discordRPC, directPlay, defaultQuality } = useSettings()
+  const { discordRPC, directPlay, defaultQuality, playerEngine } = useSettings()
   const wasOpenRef = useRef(false)
   const [searchParams] = useSearchParams()
   const query = searchParams.get('q') || ''
-  const animeOnly = searchParams.get('anime') === '1'
-  const onDemandOnly = searchParams.get('ondemand') === '1'
 
   const [trending, setTrending] = useState<TrendingResponse | null>(null)
   const [continueWatching, setContinueWatching] = useState<UnifiedMedia[]>([])
@@ -59,22 +92,24 @@ export default function Home() {
   const [selected, setSelected] = useState<UnifiedMedia | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // Resume prompt overlay
   const [resumeItem, setResumeItem] = useState<UnifiedMedia | null>(null)
   const [resumeLoading, setResumeLoading] = useState(false)
+  const [resumePhase, setResumePhase] = useState('')
+  const [resumeMessage, setResumeMessage] = useState('')
+  const [resumeStreamId, setResumeStreamId] = useState<string | null>(null)
+  const resumeTicksRef = useRef(0)
+  const [selectedResumeHint, setSelectedResumeHint] = useState<{ seasonNumber?: number | null; episodeNumber?: number | null; positionTicks?: number } | undefined>(undefined)
 
-  // Search
   const [searchResults, setSearchResults] = useState<UnifiedMedia[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
 
-  // Check for updates every time the Home page mounts
   useEffect(() => {
-    window.electronAPI.updates.check()
+    platform.updates.check().catch(() => {})
   }, [])
 
   useEffect(() => {
-    if (isOpen || !discordRPC) return
-    window.electronAPI.discord.setActivity({
+    if (isOpen || !discordRPC || !platform.supportsDiscord) return
+    platform.discord.setActivity({
       details: 'VALOR',
       state: 'Browsing for content',
       largeImageKey: 'logo',
@@ -89,8 +124,6 @@ export default function Home() {
     ])
       .then(async ([t, cw]) => {
         setTrending(t)
-        // Prefer VALOR progress store; fall back to Jellyfin native resume if empty
-        // (covers items watched from Jellyfin directly or other clients)
         let cwItems = mapContinueWatching(cw)
         if (cwItems.length === 0) {
           cwItems = await api.getJellyfinResume().catch(() => [])
@@ -103,8 +136,6 @@ export default function Home() {
     api.getHomeCategories().then(setCategories).catch(() => {})
   }, [])
 
-  // Refresh continue watching when the player closes (isOpen: true → false)
-  // Small delay lets the stop-progress report reach the server before we re-fetch.
   useEffect(() => {
     if (wasOpenRef.current && !isOpen) {
       const tid = setTimeout(() => {
@@ -124,7 +155,6 @@ export default function Home() {
     wasOpenRef.current = isOpen
   }, [isOpen])
 
-  // Search when query param changes
   useEffect(() => {
     if (!query) {
       setSearchResults([])
@@ -146,9 +176,18 @@ export default function Home() {
     return `${m}:${String(sec).padStart(2, '0')}`
   }
 
-  // Click handler for Continue Watching items — shows resume prompt
+  async function handleCwRemove(item: UnifiedMedia) {
+    try {
+      // For TV, delete by seriesId to remove the whole series entry
+      const deleteId = (item.type === 'tv' && item.seriesId) ? item.seriesId : String(item.id)
+      await api.deleteUserProgress(deleteId)
+      setContinueWatching((prev) => prev.filter((i) => i.id !== item.id))
+    } catch (e) {
+      console.error('[Home] Failed to remove from Continue Watching:', e)
+    }
+  }
+
   function handleCwClick(item: UnifiedMedia) {
-    // Show resume overlay for items with progress OR "begin next episode" TV entries
     if ((item.positionTicks && item.positionTicks > 0) || (item.type === 'tv' && item.resumeMediaId)) {
       setResumeItem(item)
     } else {
@@ -156,43 +195,129 @@ export default function Home() {
     }
   }
 
+  // Phase polling for slow-path resume (on-demand stream via RD)
+  useEffect(() => {
+    if (!resumeStreamId || !resumeItem) return
+    const interval = setInterval(async () => {
+      try {
+        const status = await api.getStreamStatus(resumeStreamId)
+        setResumePhase(status.phase)
+        setResumeMessage(status.message)
+        if (status.phase === 'ready') {
+          clearInterval(interval)
+          const job: PlayJob = {
+            itemId: status.itemId || status.jellyfinItemId || '',
+            hlsUrl: status.hlsUrl || '',
+            directStreamUrl: status.directStreamUrl,
+            playSessionId: status.playSessionId || null,
+            deviceId: status.deviceId,
+            audioTracks: status.audioTracks || [],
+            subtitleTracks: (status.subtitleTracks || []).map(t => ({
+              ...t,
+              vttUrl: t.vttUrl ?? (t as Record<string, unknown>).url as string | null ?? null,
+            })),
+            title: status.title || resumeItem.title,
+            seriesName: status.seriesName,
+            type: status.type || resumeItem.type,
+            durationTicks: status.durationTicks,
+            introStartSec: status.introStartSec,
+            introEndSec: status.introEndSec,
+            creditsStartSec: status.creditsStartSec,
+            mpvOptions: status.mpvOptions,
+          }
+          job.posterUrl = resumeItem.posterUrl
+          job.seriesId = resumeItem.seriesId || undefined
+          job.tmdbId = resumeItem.tmdbId
+          job.year = resumeItem.year
+          job.seasonNumber = resumeItem.seasonNumber
+          job.episodeNumber = resumeItem.episodeNumber
+          job.episodeName = resumeItem.episodeName
+          openPlayer(job, resumeTicksRef.current)
+          setResumeItem(null)
+          setResumeStreamId(null)
+          setResumePhase('')
+          setResumeMessage('')
+          setResumeLoading(false)
+        } else if (status.phase === 'error') {
+          clearInterval(interval)
+          setResumePhase('error')
+          setResumeMessage(status.error || status.message || 'Stream failed')
+          setResumeStreamId(null)
+          setResumeLoading(false)
+        }
+      } catch {
+        clearInterval(interval)
+        setResumePhase('error')
+        setResumeMessage('Lost connection')
+        setResumeStreamId(null)
+        setResumeLoading(false)
+      }
+    }, 1500)
+    return () => clearInterval(interval)
+  }, [resumeStreamId, resumeItem, openPlayer])
+
   async function handleResume(ticks: number) {
     if (!resumeItem) return
-    // For TV without a resumeMediaId we can't determine which episode — go to Details
     if (resumeItem.type === 'tv' && !resumeItem.resumeMediaId) {
+      setSelectedResumeHint({ seasonNumber: resumeItem.seasonNumber, episodeNumber: resumeItem.episodeNumber, positionTicks: resumeItem.positionTicks })
       setSelected(resumeItem)
       setResumeItem(null)
       return
     }
     setResumeLoading(true)
+    setResumePhase('')
+    setResumeMessage('')
+    resumeTicksRef.current = ticks
+
+    // Fast path: try Jellyfin play-job (instant if item still exists)
     try {
-      // For TV: resumeMediaId points to the actual episode; id is the seriesId
       const playId = resumeItem.resumeMediaId || String(resumeItem.id)
+      // Only use directPlay for mpv — built-in player can't decode DTS/AC3/TrueHD
+      const useDirect = directPlay && playerEngine === 'mpv'
       const job = await api.startPlayJob({
         itemId: playId,
-        directPlay,
-        maxBitrate: directPlay ? undefined : QUALITY_BITRATES[defaultQuality],
+        directPlay: useDirect,
+        maxBitrate: useDirect ? undefined : QUALITY_BITRATES[defaultQuality],
         startTimeTicks: ticks > 0 ? ticks : undefined,
       })
-      // Prefer existing TMDB poster; otherwise look one up for Discord RPC
-      let poster = resumeItem.posterUrl?.startsWith('https://image.tmdb.org') ? resumeItem.posterUrl : null
-      if (!poster) {
-        try {
-          const lookup = await api.lookupJellyfinItem(String(resumeItem.resumeMediaId || resumeItem.id))
-          if (lookup.posterUrl) poster = lookup.posterUrl
-        } catch { /* best-effort */ }
-      }
-      job.posterUrl = poster
+      job.posterUrl = resumeItem.posterUrl
       job.seriesId = resumeItem.seriesId || undefined
       job.tmdbId = resumeItem.tmdbId
+      job.year = resumeItem.year
+      job.seasonNumber = resumeItem.seasonNumber
+      job.episodeNumber = resumeItem.episodeNumber
+      job.episodeName = resumeItem.episodeName
       openPlayer(job, ticks)
       setResumeItem(null)
-    } catch (e) {
-      console.error('[Home] Resume failed:', e)
-      // Fallback to PlayModal on error
+      setResumeLoading(false)
+      return
+    } catch {
+      // Fast path failed — item gone from Jellyfin
+    }
+
+    // Slow path: on-demand stream via RD (requires tmdbId)
+    if (!resumeItem.tmdbId) {
+      setSelectedResumeHint({ seasonNumber: resumeItem.seasonNumber, episodeNumber: resumeItem.episodeNumber, positionTicks: resumeItem.positionTicks })
       setSelected(resumeItem)
       setResumeItem(null)
-    } finally {
+      setResumeLoading(false)
+      return
+    }
+    try {
+      setResumePhase('starting')
+      setResumeMessage('Starting…')
+      const res = await api.startStream({
+        tmdbId: resumeItem.tmdbId,
+        type: resumeItem.type as 'movie' | 'tv',
+        title: resumeItem.title,
+        year: resumeItem.year ?? undefined,
+        season: resumeItem.seasonNumber ?? undefined,
+        episode: resumeItem.episodeNumber ?? undefined,
+      })
+      setResumeStreamId(res.streamId) // triggers polling effect
+    } catch {
+      setResumePhase('error')
+      setResumeMessage('Failed to start stream')
       setResumeLoading(false)
     }
   }
@@ -214,8 +339,8 @@ export default function Home() {
   if (query) {
     return (
       <div className="pb-8">
-        <div className="px-6 pt-6 pb-4">
-          <h1 className="text-xl font-bold text-white">
+        <div className={`px-6 pt-6 pb-4 ${isTv ? 'px-12 pt-8' : ''}`}>
+          <h1 className={`font-bold text-white ${isTv ? 'text-2xl' : 'text-xl'}`}>
             Results for &ldquo;{query}&rdquo;
           </h1>
         </div>
@@ -225,75 +350,106 @@ export default function Home() {
             <Loader2 size={24} className="animate-spin text-white/30" />
           </div>
         ) : searchResults.length > 0 ? (
-          <div className="px-6 grid grid-cols-[repeat(auto-fill,minmax(144px,1fr))] gap-4">
+          <div className={isTv ? 'tv-grid-4 px-6' : 'px-6 grid grid-cols-[repeat(auto-fill,minmax(144px,1fr))] gap-4'}>
             {searchResults.map((item) => (
-              <MovieCard key={`${item.id}-${item.type}`} item={item} onPlay={setSelected} />
+              <Card key={`${item.id}-${item.type}`} item={item} onPlay={setSelected} />
             ))}
           </div>
         ) : (
-          <p className="text-center text-white/30 text-sm py-16">No results found</p>
+          <p className={`text-center text-white/30 py-16 ${isTv ? 'text-base' : 'text-sm'}`}>No results found</p>
         )}
 
         <AnimatePresence>
           {selected && (
-            <PlayModal item={selected} onClose={() => setSelected(null)} />
+            <PlayModal item={selected} onClose={() => { setSelected(null); setSelectedResumeHint(undefined) }} resumeHint={selectedResumeHint} />
           )}
         </AnimatePresence>
       </div>
     )
   }
 
-  // ── Filter helpers ───────────────────────────────────────────────────────
-  const filterItems = (items: UnifiedMedia[]) => {
-    let filtered = items
-    if (animeOnly) filtered = filtered.filter((i) => i.isAnime)
-    if (onDemandOnly) filtered = filtered.filter((i) => i.onDemand)
-    return filtered
-  }
-
   // ── Normal home view ──────────────────────────────────────────────────────
   return (
     <div className="pb-8">
-      {!animeOnly && !onDemandOnly && <DynamicHero items={heroItems} onSelect={setSelected} />}
+      <Hero items={heroItems} onSelect={setSelected} />
 
-      <div className="px-6 pt-4 pb-2 flex items-center gap-3">
-        <OnDemandToggle />
-        <AnimeToggle />
-      </div>
-
-      {filterItems(continueWatching).length > 0 && (
-        <MediaRow title="Continue Watching" items={filterItems(continueWatching)} onPlay={handleCwClick} />
+      {continueWatching.length > 0 && (
+        <Row title="Continue Watching" items={continueWatching} onPlay={handleCwClick} onRemove={handleCwRemove} />
       )}
 
-      {!animeOnly && !onDemandOnly && trending?.movies && trending.movies.length > 0 && (
-        <MediaRow title="Trending Movies" items={trending.movies} onPlay={setSelected} />
+      {trending?.movies && trending.movies.length > 0 && (
+        <Row title="Trending Movies" items={trending.movies} onPlay={setSelected} />
       )}
 
-      {!animeOnly && !onDemandOnly && trending?.tv && trending.tv.length > 0 && (
-        <MediaRow title="Trending TV" items={trending.tv} onPlay={setSelected} />
+      {trending?.tv && trending.tv.length > 0 && (
+        <Row title="Trending TV" items={trending.tv} onPlay={setSelected} />
       )}
 
-      {!animeOnly && !onDemandOnly && categories?.topRatedMovies && categories.topRatedMovies.length > 0 && (
-        <MediaRow title="Top Rated Movies" items={categories.topRatedMovies} onPlay={setSelected} />
+      {categories?.nowPlayingMovies && categories.nowPlayingMovies.length > 0 && (
+        <Row title="Now Playing in Theaters" items={categories.nowPlayingMovies} onPlay={setSelected} />
       )}
 
-      {!animeOnly && !onDemandOnly && categories?.actionMovies && categories.actionMovies.length > 0 && (
-        <MediaRow title="Action Movies" items={categories.actionMovies} onPlay={setSelected} />
+      {categories?.topRatedMovies && categories.topRatedMovies.length > 0 && (
+        <Row title="Top Rated Movies" items={categories.topRatedMovies} onPlay={setSelected} />
       )}
 
-      {!animeOnly && !onDemandOnly && categories?.comedyMovies && categories.comedyMovies.length > 0 && (
-        <MediaRow title="Comedy Movies" items={categories.comedyMovies} onPlay={setSelected} />
+      {categories?.topRatedTv && categories.topRatedTv.length > 0 && (
+        <Row title="Top Rated TV" items={categories.topRatedTv} onPlay={setSelected} />
       )}
 
-      {!animeOnly && !onDemandOnly && categories?.topRatedTv && categories.topRatedTv.length > 0 && (
-        <MediaRow title="Top Rated TV" items={categories.topRatedTv} onPlay={setSelected} />
+      {categories?.actionMovies && categories.actionMovies.length > 0 && (
+        <Row title="Action Movies" items={categories.actionMovies} onPlay={setSelected} />
       )}
 
-      {!animeOnly && !onDemandOnly && categories?.sciFiTv && categories.sciFiTv.length > 0 && (
-        <MediaRow title="Sci-Fi & Fantasy" items={categories.sciFiTv} onPlay={setSelected} />
+      {categories?.dramaTv && categories.dramaTv.length > 0 && (
+        <Row title="Drama TV" items={categories.dramaTv} onPlay={setSelected} />
       )}
 
-      {/* Resume prompt overlay for Continue Watching */}
+      {categories?.comedyMovies && categories.comedyMovies.length > 0 && (
+        <Row title="Comedy Movies" items={categories.comedyMovies} onPlay={setSelected} />
+      )}
+
+      {categories?.crimeTv && categories.crimeTv.length > 0 && (
+        <Row title="Crime TV" items={categories.crimeTv} onPlay={setSelected} />
+      )}
+
+      {categories?.horrorMovies && categories.horrorMovies.length > 0 && (
+        <Row title="Horror" items={categories.horrorMovies} onPlay={setSelected} />
+      )}
+
+      {categories?.sciFiTv && categories.sciFiTv.length > 0 && (
+        <Row title="Sci-Fi & Fantasy" items={categories.sciFiTv} onPlay={setSelected} />
+      )}
+
+      {categories?.thrillerMovies && categories.thrillerMovies.length > 0 && (
+        <Row title="Thriller" items={categories.thrillerMovies} onPlay={setSelected} />
+      )}
+
+      {categories?.actionAdventureTv && categories.actionAdventureTv.length > 0 && (
+        <Row title="Action & Adventure TV" items={categories.actionAdventureTv} onPlay={setSelected} />
+      )}
+
+      {categories?.romanceMovies && categories.romanceMovies.length > 0 && (
+        <Row title="Romance" items={categories.romanceMovies} onPlay={setSelected} />
+      )}
+
+      {categories?.mysteryTv && categories.mysteryTv.length > 0 && (
+        <Row title="Mystery TV" items={categories.mysteryTv} onPlay={setSelected} />
+      )}
+
+      {categories?.animationMovies && categories.animationMovies.length > 0 && (
+        <Row title="Animation" items={categories.animationMovies} onPlay={setSelected} />
+      )}
+
+      {categories?.documentaryMovies && categories.documentaryMovies.length > 0 && (
+        <Row title="Documentaries" items={categories.documentaryMovies} onPlay={setSelected} />
+      )}
+
+      {categories?.upcomingMovies && categories.upcomingMovies.length > 0 && (
+        <Row title="Upcoming Movies" items={categories.upcomingMovies} onPlay={setSelected} />
+      )}
+
+      {/* Resume prompt overlay */}
       <AnimatePresence>
         {resumeItem && (
           <motion.div
@@ -308,65 +464,86 @@ export default function Home() {
               initial={{ scale: 0.92, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.92, opacity: 0 }}
-              className="w-72 bg-[#181818] rounded-xl border border-white/10 shadow-2xl overflow-hidden"
+              className={`bg-[#181818] rounded-xl border border-white/10 shadow-2xl overflow-hidden ${isTv ? 'w-96' : 'w-72'}`}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Poster strip */}
               {resumeItem.posterUrl && (
-                <div className="relative h-24 overflow-hidden">
+                <div className={`relative overflow-hidden ${isTv ? 'h-32' : 'h-24'}`}>
                   <img src={resumeItem.backdropUrl || resumeItem.posterUrl} alt="" className="w-full h-full object-cover" />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#181818] to-transparent" />
                 </div>
               )}
-              <div className="px-4 pb-4 pt-2">
-                <p className="text-sm font-semibold text-white truncate">{resumeItem.title}</p>
+              <div className={isTv ? 'px-6 pb-6 pt-3' : 'px-4 pb-4 pt-2'}>
+                <p className={`font-semibold text-white truncate ${isTv ? 'text-base' : 'text-sm'}`}>{resumeItem.title}</p>
                 {resumeItem.type === 'tv' && resumeItem.seasonNumber != null && resumeItem.episodeNumber != null && (
-                  <p className="text-xs text-white/40 mt-0.5 truncate">
+                  <p className={`text-white/40 mt-0.5 truncate ${isTv ? 'text-sm' : 'text-xs'}`}>
                     S{String(resumeItem.seasonNumber).padStart(2, '0')}E{String(resumeItem.episodeNumber).padStart(2, '0')}
                     {resumeItem.episodeName ? ` · ${resumeItem.episodeName}` : ''}
                   </p>
                 )}
-                <div className="flex flex-col gap-2 mt-3">
-                  {(resumeItem.playedPercentage ?? 0) >= 5 ? (
+                <div className={`flex flex-col gap-2 ${isTv ? 'mt-4 gap-3' : 'mt-3'}`}>
+                  {/* Phase status during on-demand stream resolution */}
+                  {resumePhase && resumePhase !== 'error' && (
+                    <div className="flex items-center gap-2 py-2 px-3 rounded-lg bg-white/5">
+                      <Loader2 size={14} className="text-red-500 animate-spin flex-shrink-0" />
+                      <span className="text-xs text-white/70 truncate">
+                        {RESUME_PHASE_LABELS[resumePhase] || resumeMessage || 'Loading…'}
+                      </span>
+                    </div>
+                  )}
+                  {resumePhase === 'error' && (
+                    <div className="py-2 px-3 rounded-lg bg-red-500/10">
+                      <p className="text-xs text-red-400">{resumeMessage || 'Stream failed'}</p>
+                    </div>
+                  )}
+                  {!resumePhase && (
                     <>
-                      <button
-                        data-focusable
-                        onClick={() => handleResume(resumeItem.positionTicks!)}
-                        disabled={resumeLoading}
-                        className="flex items-center justify-center gap-2 py-2.5 rounded-lg
-                                   bg-white text-black font-semibold text-sm hover:bg-white/90 transition disabled:opacity-50"
-                      >
-                        {resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill="black" />}
-                        Resume at {formatTicks(resumeItem.positionTicks!)}
-                      </button>
-                      <button
-                        data-focusable
-                        onClick={() => handleResume(0)}
-                        disabled={resumeLoading}
-                        className="flex items-center justify-center gap-2 py-2.5 rounded-lg
-                                   bg-white/10 text-white text-sm hover:bg-white/15 transition disabled:opacity-50"
-                      >
-                        <RotateCcw size={14} />
-                        Start from Beginning
-                      </button>
+                      {(resumeItem.playedPercentage ?? 0) >= 5 ? (
+                        <>
+                          <button
+                            data-focusable
+                            onClick={() => handleResume(resumeItem.positionTicks!)}
+                            disabled={resumeLoading}
+                            className={`flex items-center justify-center gap-2 rounded-lg font-semibold transition disabled:opacity-50 ${
+                              isTv ? 'tv-btn-primary py-3 text-base' : 'py-2.5 bg-white text-black text-sm hover:bg-white/90'
+                            }`}
+                          >
+                            {resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill={isTv ? 'white' : 'black'} />}
+                            Resume at {formatTicks(resumeItem.positionTicks!)}
+                          </button>
+                          <button
+                            data-focusable
+                            onClick={() => handleResume(0)}
+                            disabled={resumeLoading}
+                            className={`flex items-center justify-center gap-2 rounded-lg transition disabled:opacity-50 ${
+                              isTv ? 'tv-btn-outline py-3 text-base' : 'py-2.5 bg-white/10 text-white text-sm hover:bg-white/15'
+                            }`}
+                          >
+                            <RotateCcw size={14} />
+                            Start from Beginning
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          data-focusable
+                          onClick={() => handleResume(0)}
+                          disabled={resumeLoading}
+                          className={`flex items-center justify-center gap-2 rounded-lg font-semibold transition disabled:opacity-50 ${
+                            isTv ? 'tv-btn-primary py-3 text-base' : 'py-2.5 bg-white text-black text-sm hover:bg-white/90'
+                          }`}
+                        >
+                          {resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill={isTv ? 'white' : 'black'} />}
+                          Begin Episode
+                        </button>
+                      )}
                     </>
-                  ) : (
-                    <button
-                      data-focusable
-                      onClick={() => handleResume(0)}
-                      disabled={resumeLoading}
-                      className="flex items-center justify-center gap-2 py-2.5 rounded-lg
-                                 bg-white text-black font-semibold text-sm hover:bg-white/90 transition disabled:opacity-50"
-                    >
-                      {resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill="black" />}
-                      Begin Episode
-                    </button>
                   )}
                   <button
                     data-focusable
-                    onClick={() => { setSelected(resumeItem); setResumeItem(null) }}
-                    className="flex items-center justify-center gap-2 py-2.5 rounded-lg
-                               bg-white/5 text-white/60 text-sm hover:bg-white/10 hover:text-white/80 transition"
+                    onClick={() => { setSelectedResumeHint({ seasonNumber: resumeItem.seasonNumber, episodeNumber: resumeItem.episodeNumber, positionTicks: resumeItem.positionTicks }); setSelected(resumeItem); setResumeItem(null) }}
+                    className={`flex items-center justify-center gap-2 rounded-lg transition ${
+                      isTv ? 'tv-btn-outline py-3 text-base' : 'py-2.5 bg-white/5 text-white/60 text-sm hover:bg-white/10 hover:text-white/80'
+                    }`}
                   >
                     <Info size={14} />
                     Details
@@ -380,7 +557,7 @@ export default function Home() {
 
       <AnimatePresence>
         {selected && (
-          <PlayModal item={selected} onClose={() => setSelected(null)} />
+          <PlayModal item={selected} onClose={() => { setSelected(null); setSelectedResumeHint(undefined) }} resumeHint={selectedResumeHint} />
         )}
       </AnimatePresence>
     </div>

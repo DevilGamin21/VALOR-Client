@@ -4,10 +4,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Loader2, AlertCircle, ArrowLeft } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import TitleBar from '@/components/TitleBar'
+import { isTv, isElectron } from '@/hooks/usePlatform'
 
 type Stage = 'idle' | 'submitting' | 'dot' | 'confirmed' | 'success' | 'failure' | 'reverting'
 
-// Framer stagger variants
 const container = {
   hidden: { opacity: 0 },
   show: {
@@ -86,19 +86,25 @@ export default function Login() {
   const showDot = stage === 'dot' || stage === 'confirmed' || stage === 'success' || stage === 'failure'
   const isGreen = stage === 'confirmed' || stage === 'success'
 
+  // TV-specific input styles
+  const inputClass = isTv
+    ? 'tv-input'
+    : 'w-full rounded-xl bg-black/50 border border-white/[0.08] px-4 py-3 text-sm text-white placeholder-white/15 focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/20 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed'
+
   return (
     <div className="flex flex-col h-screen bg-[#06060a] overflow-hidden">
-      <TitleBar />
+      {/* Title bar — desktop only */}
+      {isElectron && <TitleBar />}
 
       <div className="flex-1 relative flex items-center justify-center">
-        {/* Background glow blobs — static, large blur */}
+        {/* Background glow blobs */}
         <div className="fixed inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-[30%] -right-[20%] w-[70vw] h-[70vw] rounded-full bg-red-950/40 blur-[140px]" />
           <div className="absolute -bottom-[25%] -left-[20%] w-[60vw] h-[60vw] rounded-full bg-indigo-950/30 blur-[120px]" />
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[45vw] h-[45vw] rounded-full bg-red-950/20 blur-[90px]" />
         </div>
 
-        {/* Dot-grid texture overlay */}
+        {/* Dot-grid texture */}
         <div
           className="fixed inset-0 pointer-events-none opacity-[0.018]"
           style={{
@@ -132,7 +138,7 @@ export default function Login() {
           {showCard && (
             <motion.div
               key="card"
-              className="relative z-10 w-full max-w-[22rem] px-4"
+              className={`relative z-10 w-full px-4 ${isTv ? 'max-w-[480px]' : 'max-w-[22rem]'}`}
               variants={container}
               initial="hidden"
               animate={
@@ -146,37 +152,36 @@ export default function Login() {
               transition={{ duration: 0.35 }}
             >
               {/* Brand mark */}
-              <motion.div className="text-center mb-9" variants={item}>
-                <motion.div
-                  className="inline-flex items-center justify-center w-16 h-16 mb-5 rounded-2xl
-                             border border-red-500/20 bg-gradient-to-br from-red-900/30 to-black/60
-                             backdrop-blur-sm shadow-[0_0_40px_rgba(220,38,38,0.2)]"
-                  initial={{ scale: 0.6, opacity: 0, rotate: -8 }}
-                  animate={{ scale: 1, opacity: 1, rotate: 0 }}
-                  transition={{ type: 'spring', stiffness: 220, damping: 22, delay: 0.05 }}
-                >
-                  <span className="text-2xl font-black text-red-400 select-none">V</span>
-                </motion.div>
-                <h1 className="text-[2.6rem] font-black tracking-[0.42em] text-white leading-none">VALOR</h1>
-                <p className="mt-3 text-[10px] tracking-[0.3em] text-red-400/50 uppercase">
-                  {isAddAccount ? 'Add Account' : 'Private Cinema'}
+              <motion.div className={`text-center ${isTv ? 'mb-12' : 'mb-9'}`} variants={item}>
+                <h1 className={`font-black tracking-[0.42em] text-white leading-none ${isTv ? 'text-[56px] tracking-[12px]' : 'text-[2.6rem]'}`}>
+                  VALOR
+                </h1>
+                <p className={`mt-3 tracking-[0.3em] text-red-400/50 uppercase ${isTv ? 'text-sm' : 'text-[10px]'}`}>
+                  {isAddAccount ? 'Add Account' : 'Sign In'}
                 </p>
               </motion.div>
 
-              {/* Gradient border card */}
+              {/* Card */}
               <motion.div
                 variants={item}
                 layout
-                className="p-px rounded-2xl bg-gradient-to-b from-white/10 via-white/[0.04] to-white/[0.02]"
+                className={isTv
+                  ? 'rounded-2xl bg-[#141414] border border-[#2a2a2a] px-10 py-10'
+                  : 'p-px rounded-2xl bg-gradient-to-b from-white/10 via-white/[0.04] to-white/[0.02]'
+                }
               >
-                <div className="relative rounded-2xl bg-[#0c0c11]/95 backdrop-blur-3xl px-7 py-8
-                                shadow-[0_20px_80px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.04)]">
-                  {/* Scan-line shimmer */}
-                  <motion.div
-                    className="absolute top-0 left-8 right-8 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent rounded-full"
-                    animate={{ opacity: [0.4, 1, 0.4] }}
-                    transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-                  />
+                <div className={isTv
+                  ? ''
+                  : 'relative rounded-2xl bg-[#0c0c11]/95 backdrop-blur-3xl px-7 py-8 shadow-[0_20px_80px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.04)]'
+                }>
+                  {/* Scan-line shimmer — desktop only */}
+                  {!isTv && (
+                    <motion.div
+                      className="absolute top-0 left-8 right-8 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent rounded-full"
+                      animate={{ opacity: [0.4, 1, 0.4] }}
+                      transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+                    />
+                  )}
 
                   {/* Error */}
                   <AnimatePresence>
@@ -187,88 +192,86 @@ export default function Login() {
                         exit={{ opacity: 0, height: 0 }}
                         className="mb-5 overflow-hidden"
                       >
-                        <div className="flex items-center gap-2.5 rounded-xl bg-red-500/8 border border-red-500/20 px-3.5 py-2.5">
-                          <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
-                          <p className="text-xs text-red-300 leading-snug">{error}</p>
+                        <div className={`flex items-center gap-2.5 rounded-xl bg-red-500/8 border border-red-500/20 px-3.5 py-2.5 ${isTv ? 'text-sm' : ''}`}>
+                          <AlertCircle className={`text-red-400 shrink-0 ${isTv ? 'w-5 h-5' : 'w-3.5 h-3.5'}`} />
+                          <p className={`text-red-300 leading-snug ${isTv ? 'text-sm' : 'text-xs'}`}>{error}</p>
                         </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
 
                   {/* Form */}
-                  <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+                  <form onSubmit={handleSubmit} className={`flex flex-col ${isTv ? 'gap-6' : 'gap-5'}`}>
                     <div>
-                      <label className="block text-[9px] uppercase tracking-[0.22em] text-white/35 font-semibold mb-2 select-none">
+                      <label className={`block uppercase tracking-[0.22em] text-white/35 font-semibold select-none ${isTv ? 'text-xs mb-3' : 'text-[9px] mb-2'}`}>
                         Username
                       </label>
                       <input
+                        data-focusable
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
                         disabled={isAnimating}
-                        className="w-full rounded-xl bg-black/50 border border-white/[0.08] px-4 py-3 text-sm text-white
-                                   placeholder-white/15 focus:outline-none focus:border-red-500/50 focus:ring-1
-                                   focus:ring-red-500/20 transition-all duration-200 disabled:opacity-40
-                                   disabled:cursor-not-allowed"
+                        className={inputClass}
                         autoComplete="username"
                       />
                     </div>
                     <div>
-                      <label className="block text-[9px] uppercase tracking-[0.22em] text-white/35 font-semibold mb-2 select-none">
+                      <label className={`block uppercase tracking-[0.22em] text-white/35 font-semibold select-none ${isTv ? 'text-xs mb-3' : 'text-[9px] mb-2'}`}>
                         Password
                       </label>
                       <input
+                        data-focusable
                         type="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         disabled={isAnimating}
-                        className="w-full rounded-xl bg-black/50 border border-white/[0.08] px-4 py-3 text-sm text-white
-                                   placeholder-white/15 focus:outline-none focus:border-red-500/50 focus:ring-1
-                                   focus:ring-red-500/20 transition-all duration-200 disabled:opacity-40
-                                   disabled:cursor-not-allowed"
+                        className={inputClass}
                         autoComplete="current-password"
                       />
                     </div>
-                    <motion.button
+                    <button
+                      data-focusable
                       type="submit"
                       disabled={isAnimating}
-                      whileHover={isAnimating ? {} : { scale: 1.015 }}
-                      whileTap={isAnimating ? {} : { scale: 0.975 }}
-                      className={`group relative w-full overflow-hidden rounded-xl py-3.5
-                        text-[11px] font-bold tracking-[0.25em] uppercase transition-all duration-300 mt-1
-                        ${isAnimating
-                          ? 'bg-red-900/30 text-red-400/40 cursor-wait'
-                          : 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-[0_4px_30px_rgba(220,38,38,0.35)] hover:shadow-[0_4px_40px_rgba(220,38,38,0.5)] hover:from-red-500 hover:to-red-600'
-                        }`}
+                      className={isTv
+                        ? `tv-btn-primary w-full py-4 text-base mt-2 ${isAnimating ? 'opacity-50 cursor-wait' : ''}`
+                        : `group relative w-full overflow-hidden rounded-xl py-3.5 text-[11px] font-bold tracking-[0.25em] uppercase transition-all duration-300 mt-1 ${
+                            isAnimating
+                              ? 'bg-red-900/30 text-red-400/40 cursor-wait'
+                              : 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-[0_4px_30px_rgba(220,38,38,0.35)] hover:shadow-[0_4px_40px_rgba(220,38,38,0.5)] hover:from-red-500 hover:to-red-600'
+                          }`
+                      }
                     >
-                      {/* Shimmer sweep */}
-                      <span className="pointer-events-none absolute inset-0 -translate-x-full
-                        bg-gradient-to-r from-transparent via-white/15 to-transparent
-                        transition-transform duration-500 ease-in-out group-hover:translate-x-[200%]" />
+                      {!isTv && (
+                        <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/15 to-transparent transition-transform duration-500 ease-in-out group-hover:translate-x-[200%]" />
+                      )}
                       <span className="relative flex items-center justify-center gap-2">
-                        {isAnimating && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                        {isAnimating ? 'Signing in...' : 'Sign in'}
+                        {isAnimating && <Loader2 className={`animate-spin ${isTv ? 'w-5 h-5' : 'w-3.5 h-3.5'}`} />}
+                        {isAnimating ? 'Signing in...' : 'Sign In'}
                       </span>
-                    </motion.button>
+                    </button>
 
                     {isAddAccount && !isAnimating && (
                       <button
+                        data-focusable
                         type="button"
                         onClick={() => navigate('/home', { replace: true })}
-                        className="w-full flex items-center justify-center gap-2 py-2.5 text-[10px] uppercase
-                                   tracking-[0.2em] text-white/40 hover:text-white/70 transition"
+                        className={isTv
+                          ? 'tv-btn-outline w-full py-3 flex items-center justify-center gap-2'
+                          : 'w-full flex items-center justify-center gap-2 py-2.5 text-[10px] uppercase tracking-[0.2em] text-white/40 hover:text-white/70 transition'
+                        }
                       >
-                        <ArrowLeft size={12} />
+                        <ArrowLeft size={isTv ? 16 : 12} />
                         Cancel
                       </button>
                     )}
                   </form>
-
                 </div>
               </motion.div>
             </motion.div>
           )}
 
-          {/* Animated dot (submitting → result) */}
+          {/* Animated dot */}
           {showDot && (
             <motion.div
               key="dot"
@@ -277,40 +280,37 @@ export default function Login() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
             >
-              {/* Core dot / portal */}
               <motion.div
                 animate={
                   stage === 'success'
-                    ? { width: '300vmax', height: '300vmax', opacity: 1 }
+                    ? { scale: 200, opacity: 1 }
                     : stage === 'failure'
                     ? { x: [0, -14, 14, -10, 10, -6, 0] }
                     : { width: 20, height: 20 }
                 }
                 transition={
                   stage === 'success'
-                    ? { duration: 1.0, ease: [0.22, 1, 0.36, 1] }
+                    ? { duration: 0.9, ease: [0.22, 1, 0.36, 1] }
                     : stage === 'failure'
                     ? { duration: 0.5 }
                     : {}
                 }
-                className="rounded-full"
                 style={{
                   width: 20,
                   height: 20,
+                  borderRadius: stage === 'success' ? 0 : '50%',
                   background: stage === 'success'
-                    ? 'radial-gradient(circle, #0a0a0a 40%, rgba(16,185,129,0.12) 100%)'
+                    ? '#0a0a0a'
                     : isGreen
                     ? 'radial-gradient(circle, rgba(16,185,129,0.95) 0%, rgba(16,185,129,0.5) 50%, transparent 75%)'
                     : 'radial-gradient(circle, rgba(220,38,38,0.95) 0%, rgba(220,38,38,0.5) 50%, transparent 75%)',
                   boxShadow: stage === 'success'
-                    ? '0 0 80px 30px rgba(16,185,129,0.35), 0 0 200px 80px rgba(16,185,129,0.12)'
+                    ? 'none'
                     : isGreen
                     ? '0 0 60px 15px rgba(16,185,129,0.5), 0 0 120px 40px rgba(16,185,129,0.2)'
                     : '0 0 60px 15px rgba(220,38,38,0.5), 0 0 120px 40px rgba(220,38,38,0.2)',
                 }}
               />
-
-              {/* Spinning ring */}
               {stage !== 'success' && (
                 <motion.div
                   className={`absolute rounded-full border-2 transition-colors duration-500 ${
@@ -321,8 +321,6 @@ export default function Login() {
                   style={{ width: 48, height: 48, animation: 'valor-spin 0.8s linear infinite' }}
                 />
               )}
-
-              {/* Pulse ring */}
               {stage !== 'success' && (
                 <motion.div
                   className={`absolute rounded-full border ${isGreen ? 'border-emerald-500/20' : 'border-red-500/15'}`}
@@ -335,7 +333,7 @@ export default function Login() {
           )}
         </AnimatePresence>
 
-        {/* Black overlay during success expand */}
+        {/* Black overlay during success */}
         <AnimatePresence>
           {stage === 'success' && (
             <motion.div

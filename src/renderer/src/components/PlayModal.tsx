@@ -1,11 +1,12 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Play, Plus, Check, Loader2, Lock, Wifi, MoreHorizontal, Eye, EyeOff, Star } from 'lucide-react'
+import { X, Play, Plus, Check, Loader2, Lock, MoreHorizontal, Eye, EyeOff, Star, Cast } from 'lucide-react'
 import * as api from '@/services/api'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useWatchlist } from '@/contexts/WatchlistContext'
 import { useAuth } from '@/contexts/AuthContext'
-import type { UnifiedMedia, PlayJob, Season, Episode, P2PStatus, EpisodeInfo } from '@/types/media'
+import { useConnect } from '@/contexts/ConnectContext'
+import type { UnifiedMedia, PlayJob, Season, Episode, EpisodeInfo } from '@/types/media'
 
 interface MergedEpisode {
   id: string
@@ -15,6 +16,9 @@ interface MergedEpisode {
   jellyfinId?: string
   playedPercentage?: number
   airDate: string | null
+  availableAt?: string | null
+  overview?: string | null
+  stillUrl?: string | null
 }
 
 interface DisplaySeason {
@@ -24,9 +28,16 @@ interface DisplaySeason {
   episodeCount: number
 }
 
+interface ResumeHint {
+  seasonNumber?: number | null
+  episodeNumber?: number | null
+  positionTicks?: number
+}
+
 interface Props {
   item: UnifiedMedia
   onClose: () => void
+  resumeHint?: ResumeHint
 }
 
 // Phase display labels for the on-demand stream resolution progress
@@ -42,12 +53,14 @@ const PHASE_LABELS: Record<string, string> = {
   building: 'Building play session…',
 }
 
-export default function PlayModal({ item, onClose }: Props) {
+export default function PlayModal({ item, onClose, resumeHint }: Props) {
   const { openPlayer } = usePlayer()
   const { ids, toggle } = useWatchlist()
   const { user } = useAuth()
+  const connectCtx = useConnect()
   const isPremium = user?.isPremium || user?.role === 'admin'
   const inWatchlist = ids.has(item.id)
+  const hasRemoteTarget = !!connectCtx?.targetDevice
 
   const [tmdbSeasons, setTmdbSeasons] = useState<api.TmdbSeason[]>([])
   const [jellyfinSeasons, setJellyfinSeasons] = useState<Season[]>([])
@@ -76,6 +89,10 @@ export default function PlayModal({ item, onClose }: Props) {
   const pendingEpisodesRef = useRef<EpisodeInfo[]>([])
   const pendingEpIdRef = useRef<string | undefined>(undefined)
 
+  // Episode carousel
+  const [visibleEpIdx, setVisibleEpIdx] = useState(0)
+  const carouselRef = useRef<HTMLDivElement>(null)
+
   // Episode context menu
   const [activeMenu, setActiveMenu] = useState<{ epId: string; top: number; right: number } | null>(null)
 
@@ -83,10 +100,9 @@ export default function PlayModal({ item, onClose }: Props) {
   const [digitalRelease, setDigitalRelease] = useState<{ isReleased: boolean; releaseDate?: string } | null>(null)
   const [digitalReleaseLoading, setDigitalReleaseLoading] = useState(false)
 
-  // P2P
-  const [p2pLoading, setP2pLoading] = useState(false)
-  const [p2pStatus, setP2pStatus] = useState<P2PStatus | null>(null)
-  const [p2pHash, setP2pHash] = useState<string | null>(null)
+  // TMDB detail (rating, genres)
+  const [tmdbRating, setTmdbRating] = useState<number | null>(item.rating ?? null)
+  const [tmdbGenres, setTmdbGenres] = useState<{ id: number; name: string }[]>([])
 
   // Resolved Jellyfin series ID
   const [resolvedSeriesId, setResolvedSeriesId] = useState<string | null>(null)
@@ -100,9 +116,9 @@ export default function PlayModal({ item, onClose }: Props) {
     if (item.positionTicks && item.positionTicks > 0) {
       setResumeTicks(item.positionTicks)
       setShowResume(true)
-    } else if (item.onDemand) {
-      // Check Jellyfin for saved progress (only possible if item has a Jellyfin ID)
-      api.getItemProgress(String(item.id)).then((progress) => {
+    } else {
+      // Check our progress store for saved position
+      api.getUserProgress(String(item.id)).then((progress) => {
         if (progress && progress.percent >= 5 && progress.percent < 90) {
           setResumeTicks(progress.positionTicks)
           setShowResume(true)
@@ -175,7 +191,10 @@ export default function PlayModal({ item, onClose }: Props) {
       setTmdbSeasons(tmdb)
       setJellyfinSeasons(jf)
 
-      const firstSeason =
+      // If resumeHint has a season, select it; otherwise pick the first available
+      const hintSeason = resumeHint?.seasonNumber
+      const hasSeason = hintSeason != null && (tmdb.some(s => s.seasonNumber === hintSeason) || jf.some(s => s.seasonNumber === hintSeason))
+      const firstSeason = hasSeason ? hintSeason :
         tmdb.length > 0 ? tmdb[0].seasonNumber :
         jf.length > 0 ? jf[0].seasonNumber :
         null
@@ -219,6 +238,9 @@ export default function PlayModal({ item, onClose }: Props) {
           jellyfinId: jMap.get(ep.episodeNumber),
           playedPercentage: jProgressMap.get(ep.episodeNumber),
           airDate: ep.airDate,
+          availableAt: ep.availableAt,
+          overview: ep.overview,
+          stillUrl: ep.stillUrl,
         }))
       }
 
@@ -272,6 +294,7 @@ export default function PlayModal({ item, onClose }: Props) {
             || (item.posterUrl?.startsWith('https://image.tmdb.org') ? item.posterUrl : null)
           job.seriesId = resolvedSeriesId || item.seriesId || undefined
           job.tmdbId = item.tmdbId
+          job.year = item.year
 
           openPlayer(job, pendingResumeRef.current, pendingEpisodesRef.current, pendingEpIdRef.current)
           onClose()
@@ -295,27 +318,17 @@ export default function PlayModal({ item, onClose }: Props) {
     return () => clearInterval(interval)
   }, [streamId, openPlayer, onClose, item, tmdbPosterUrl, resolvedSeriesId])
 
-  // ── P2P polling ──────────────────────────────────────────────────────────
+  // ── Fetch TMDB detail (rating + genres) ──────────────────────────────────
   useEffect(() => {
-    if (!p2pHash) return
-    const interval = setInterval(async () => {
-      try {
-        const status = await api.getP2PStatus(p2pHash)
-        setP2pStatus(status)
-        if (status.ready && status.jellyfinItemId) {
-          clearInterval(interval)
-          const job = await api.startPlayJob({
-            itemId: status.jellyfinItemId,
-          })
-          openPlayer(job)
-          onClose()
-        }
-      } catch {
-        clearInterval(interval)
+    if (!item.tmdbId) return
+    api.getTmdbDetail(item.tmdbId, item.type).then((detail) => {
+      if (detail.rating != null) setTmdbRating(detail.rating)
+      if (detail.genres?.length) setTmdbGenres(detail.genres)
+      if (detail.backdropUrl && !item.backdropUrl) {
+        // Use TMDB backdrop if item doesn't have one
       }
-    }, 1500)
-    return () => clearInterval(interval)
-  }, [p2pHash, openPlayer, onClose])
+    }).catch(() => {})
+  }, [item.tmdbId, item.type])
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
@@ -325,6 +338,19 @@ export default function PlayModal({ item, onClose }: Props) {
       return
     }
     if (item.type === 'movie' && item.source !== 'jellyfin' && digitalRelease?.isReleased !== true) return
+    // Remote play: send to target device instead of playing locally
+    if (hasRemoteTarget && connectCtx) {
+      connectCtx.playOnTarget({
+        tmdbId: item.tmdbId,
+        type: item.type,
+        title: item.title,
+        year: item.year ?? undefined,
+        startPositionTicks: startTicks > 0 ? startTicks : undefined,
+        isAnime: item.isAnime,
+      })
+      onClose()
+      return
+    }
     setLoadingPlay(true)
     setError('')
     pendingResumeRef.current = startTicks
@@ -350,6 +376,21 @@ export default function PlayModal({ item, onClose }: Props) {
   async function playEpisode(ep: MergedEpisode, startTicks = 0) {
     if (!item.tmdbId) {
       setError('Cannot play — missing TMDB ID')
+      return
+    }
+    // Remote play: send to target device
+    if (hasRemoteTarget && connectCtx) {
+      connectCtx.playOnTarget({
+        tmdbId: item.tmdbId,
+        type: 'tv',
+        title: item.title,
+        year: item.year ?? undefined,
+        season: ep.seasonNumber,
+        episode: ep.episodeNumber,
+        startPositionTicks: startTicks > 0 ? startTicks : undefined,
+        isAnime: item.isAnime,
+      })
+      onClose()
       return
     }
     setLoadingPlay(true)
@@ -406,12 +447,23 @@ export default function PlayModal({ item, onClose }: Props) {
   }
 
   async function handleMovieMarkWatched() {
-    if (!item.onDemand) return
     try {
       if (movieWatched) {
-        await api.markItemUnplayed(String(item.id))
+        await api.deleteUserProgress(String(item.id))
       } else {
-        await api.markItemPlayed(String(item.id))
+        // Mark as watched by reporting position = duration (triggers >90% logic on backend)
+        await api.reportProgress({
+          itemId: String(item.id),
+          positionTicks: 1,
+          durationTicks: 1,
+          isPaused: true,
+          playSessionId: '',
+          title: item.title,
+          posterUrl: item.posterUrl,
+          type: item.type,
+          year: item.year,
+          tmdbId: item.tmdbId,
+        })
       }
       setMovieWatched(!movieWatched)
     } catch (e) {
@@ -425,9 +477,23 @@ export default function PlayModal({ item, onClose }: Props) {
     setActiveMenu(null)
     try {
       if (watched) {
-        await api.markItemPlayed(ep.jellyfinId)
+        await api.reportProgress({
+          itemId: ep.jellyfinId,
+          positionTicks: 1,
+          durationTicks: 1,
+          isPaused: true,
+          playSessionId: '',
+          seriesId: resolvedSeriesId || item.seriesId,
+          title: item.title,
+          posterUrl: item.posterUrl,
+          type: 'tv',
+          tmdbId: item.tmdbId,
+          seasonNumber: ep.seasonNumber,
+          episodeNumber: ep.episodeNumber,
+          episodeName: ep.title,
+        })
       } else {
-        await api.markItemUnplayed(ep.jellyfinId)
+        await api.deleteUserProgress(ep.jellyfinId)
       }
       setEpisodes((prev) =>
         prev.map((e) => e.id === ep.id ? { ...e, playedPercentage: watched ? 100 : 0 } : e)
@@ -435,23 +501,6 @@ export default function PlayModal({ item, onClose }: Props) {
     } catch (e) {
       console.error('[PlayModal] markWatched failed:', e)
       setError(`Could not update watch status: ${(e as Error).message}`)
-    }
-  }
-
-  async function startP2P() {
-    setP2pLoading(true)
-    setError('')
-    try {
-      const res = await api.startP2P({
-        title: item.title,
-        year: item.year ?? undefined,
-        type: item.type,
-        tmdbId: item.tmdbId
-      } as Parameters<typeof api.startP2P>[0])
-      setP2pHash(res.infoHash)
-    } catch (e) {
-      setError((e as Error).message)
-      setP2pLoading(false)
     }
   }
 
@@ -463,6 +512,39 @@ export default function PlayModal({ item, onClose }: Props) {
     if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
     return `${m}:${String(sec).padStart(2, '0')}`
   }
+
+  // ── Carousel helpers ────────────────────────────────────────────────────
+  const scrollToEp = useCallback((idx: number) => {
+    const el = carouselRef.current
+    if (!el || !el.children[idx]) return
+    const card = el.children[idx] as HTMLElement
+    // Scroll so the card's left edge aligns with the container's left edge
+    el.scrollTo({ left: card.offsetLeft, behavior: 'smooth' })
+  }, [])
+
+  // Reset carousel position when episodes change
+  useEffect(() => { setVisibleEpIdx(0) }, [episodes])
+
+  // Track which episode is most visible during scroll
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const handleCarouselScroll = useCallback(() => {
+    if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current)
+    scrollTimeoutRef.current = setTimeout(() => {
+      const el = carouselRef.current
+      if (!el || !el.children.length) return
+      const containerLeft = el.scrollLeft
+      const containerCenter = containerLeft + el.clientWidth / 2
+      let closestIdx = 0
+      let closestDist = Infinity
+      for (let i = 0; i < el.children.length; i++) {
+        const card = el.children[i] as HTMLElement
+        const cardCenter = card.offsetLeft + card.offsetWidth / 2
+        const dist = Math.abs(cardCenter - containerCenter)
+        if (dist < closestDist) { closestDist = dist; closestIdx = i }
+      }
+      setVisibleEpIdx(closestIdx)
+    }, 60)
+  }, [])
 
   // ── Derived display state ─────────────────────────────────────────────────
   const backdrop = item.backdropUrl || item.posterUrl
@@ -499,61 +581,82 @@ export default function PlayModal({ item, onClose }: Props) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80"
       onClick={onClose}
     >
       <motion.div
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.95, opacity: 0 }}
-        className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto
-                   bg-[#111] rounded-xl shadow-2xl border border-white/10"
+        initial={{ y: 40, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 40, opacity: 0 }}
+        transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+        className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto
+                   bg-[#0e0e0e] rounded-t-2xl sm:rounded-2xl shadow-2xl border border-white/[0.06]"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Close */}
-        <button
-          data-focusable
-          data-modal-close
-          onClick={onClose}
-          className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-black/60
-                     flex items-center justify-center text-white/70 hover:text-white transition"
-        >
-          <X size={16} />
-        </button>
+        {/* Hero section — large backdrop with overlaid info */}
+        <div className="relative">
+          {backdrop ? (
+            <div className="relative h-64 sm:h-72 overflow-hidden rounded-t-2xl sm:rounded-t-2xl">
+              <img src={backdrop} alt="" className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#0e0e0e] via-[#0e0e0e]/40 to-transparent" />
+            </div>
+          ) : (
+            <div className="h-20" />
+          )}
 
-        {/* Backdrop */}
-        {backdrop && (
-          <div className="relative h-48 overflow-hidden rounded-t-xl">
-            <img src={backdrop} alt="" className="w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#111] to-transparent" />
-          </div>
-        )}
+          {/* Close button */}
+          <button
+            data-focusable
+            data-modal-close
+            onClick={onClose}
+            className="absolute top-4 right-4 z-10 w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm
+                       flex items-center justify-center text-white/70 hover:text-white hover:bg-white/15 transition"
+          >
+            <X size={16} />
+          </button>
 
-        <div className="p-6 pt-4">
-          {/* Poster + info */}
-          <div className="flex gap-4 mb-4">
-            {item.posterUrl && (
-              <img
-                src={item.posterUrl}
-                alt={item.title}
-                className="w-24 h-36 rounded-lg object-cover flex-shrink-0 -mt-12 relative z-10 shadow-lg"
-              />
-            )}
-            <div className="flex-1 min-w-0 pt-1">
-              <h2 className="text-xl font-bold text-white leading-tight">{item.title}</h2>
-              <div className="flex items-center gap-2 mt-1 text-sm text-white/40">
-                {item.year && <span>{item.year}</span>}
-                <span className="uppercase text-xs">{item.type}</span>
-                {item.premiumOnly && (
-                  <span className="inline-flex items-center gap-1 bg-gradient-to-r from-amber-500 to-yellow-400 text-black text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">
-                    <Star size={9} fill="currentColor" />
-                    Premium
-                  </span>
-                )}
+          {/* Info overlaid on backdrop */}
+          <div className={`px-6 pb-1 ${backdrop ? '-mt-24 relative z-[1]' : 'pt-4'}`}>
+            <div className="flex gap-5">
+              {item.posterUrl && (
+                <img
+                  src={item.posterUrl}
+                  alt={item.title}
+                  className="w-28 h-[168px] rounded-lg object-cover flex-shrink-0 shadow-xl ring-1 ring-white/10"
+                />
+              )}
+              <div className="flex-1 min-w-0 flex flex-col justify-end pb-1">
+                <h2 className="text-2xl font-bold text-white leading-tight drop-shadow-lg">{item.title}</h2>
+                <div className="flex items-center gap-2.5 mt-2 flex-wrap">
+                  {tmdbRating != null && tmdbRating > 0 && (
+                    <span className="inline-flex items-center gap-1 text-sm font-bold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-md">
+                      <Star size={12} fill="currentColor" />
+                      {tmdbRating.toFixed(1)}
+                    </span>
+                  )}
+                  {item.year && <span className="text-sm text-white/50 font-medium">{item.year}</span>}
+                  {tmdbGenres.length > 0 && (
+                    <span className="text-sm text-white/35">
+                      {tmdbGenres.slice(0, 3).map(g => g.name).join(' · ')}
+                    </span>
+                  )}
+                  {item.premiumOnly && (
+                    <span className="inline-flex items-center gap-1 bg-gradient-to-r from-amber-500 to-yellow-400 text-black text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">
+                      <Star size={9} fill="currentColor" />
+                      Premium
+                    </span>
+                  )}
+                </div>
               </div>
-              <p className="mt-2 text-sm text-white/60 line-clamp-3">{item.overview}</p>
             </div>
           </div>
+        </div>
+
+        <div className="px-6 pt-3 pb-6">
+          {/* Overview */}
+          {item.overview && (
+            <p className="text-sm text-white/50 leading-relaxed line-clamp-3 mb-5">{item.overview}</p>
+          )}
 
           {/* Error */}
           {error && (
@@ -623,22 +726,22 @@ export default function PlayModal({ item, onClose }: Props) {
 
           {/* Action row: movies */}
           {showActionRow && !showResume && !isStreaming && (
-            <div className="flex gap-2 mb-4">
+            <div className="flex gap-2.5 mb-5">
               {item.premiumOnly && !isPremium ? (
-                <div className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
+                <div className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl
                                 bg-gradient-to-r from-amber-900/30 to-yellow-900/20 border border-amber-600/30
                                 text-amber-300/70 text-sm cursor-not-allowed">
                   <Lock size={14} />
                   Premium Only
                 </div>
               ) : digitalReleaseLoading || (item.source !== 'jellyfin' && item.type === 'movie' && !digitalRelease) ? (
-                <div className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
+                <div className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl
                                 bg-white/5 text-white/30 text-sm">
                   <Loader2 size={14} className="animate-spin" />
                   Checking release…
                 </div>
               ) : !isMovieReleased ? (
-                <div className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
+                <div className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl
                                 bg-white/5 border border-white/10 text-white/30 text-sm cursor-not-allowed">
                   <Lock size={14} />
                   Awaiting Release
@@ -648,26 +751,11 @@ export default function PlayModal({ item, onClose }: Props) {
                   data-focusable
                   onClick={() => play()}
                   disabled={loadingPlay}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
+                  className="flex-[2] flex items-center justify-center gap-2 py-3 rounded-xl
                              bg-red-600 hover:bg-red-500 text-white font-semibold text-sm transition disabled:opacity-50"
                 >
-                  {loadingPlay ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} fill="white" />}
-                  Play
-                </button>
-              )}
-
-              {/* P2P fallback */}
-              {!p2pHash && !loadingPlay && isMovieReleased && (
-                <button
-                  data-focusable
-                  onClick={startP2P}
-                  disabled={p2pLoading}
-                  title="Stream via P2P (WebTorrent)"
-                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg
-                             bg-white/10 hover:bg-white/15 text-white/60 text-sm transition disabled:opacity-50"
-                >
-                  {p2pLoading ? <Loader2 size={14} className="animate-spin" /> : <Wifi size={14} />}
-                  P2P
+                  {loadingPlay ? <Loader2 size={16} className="animate-spin" /> : hasRemoteTarget ? <Cast size={16} /> : <Play size={16} fill="white" />}
+                  {hasRemoteTarget ? `Play on ${connectCtx?.targetDevice?.deviceName}` : 'Play'}
                 </button>
               )}
 
@@ -675,8 +763,8 @@ export default function PlayModal({ item, onClose }: Props) {
                 data-focusable
                 onClick={() => toggle(item)}
                 title={inWatchlist ? 'Remove from watchlist' : 'Add to watchlist'}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
-                           bg-white/10 hover:bg-white/15 text-white text-sm transition"
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl
+                           bg-white/[0.07] hover:bg-white/[0.12] text-white text-sm transition"
               >
                 {inWatchlist ? (
                   <><Check size={14} className="text-green-400" /> Saved</>
@@ -685,18 +773,18 @@ export default function PlayModal({ item, onClose }: Props) {
                 )}
               </button>
 
-              {item.onDemand && item.type === 'movie' && (
+              {item.type === 'movie' && (
                 <button
                   data-focusable
                   onClick={handleMovieMarkWatched}
                   title={movieWatched ? 'Remove from watched' : 'Mark as watched'}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
-                             bg-white/10 hover:bg-white/15 text-white text-sm transition"
+                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl
+                             bg-white/[0.07] hover:bg-white/[0.12] text-white text-sm transition"
                 >
                   {movieWatched ? (
                     <><EyeOff size={14} /> Watched</>
                   ) : (
-                    <><Eye size={14} /> Mark as watched</>
+                    <><Eye size={14} /> Mark watched</>
                   )}
                 </button>
               )}
@@ -710,37 +798,16 @@ export default function PlayModal({ item, onClose }: Props) {
             </p>
           )}
 
-          {/* P2P progress */}
-          {p2pHash && p2pStatus && (
-            <div className="mb-4 p-3 rounded-lg bg-purple-900/20 border border-purple-700/30">
-              <div className="flex justify-between text-sm mb-2">
-                <span className="text-purple-300">Buffering P2P stream…</span>
-                <span className="text-white/50 text-xs">
-                  {(p2pStatus.downloadSpeed / 1024).toFixed(0)} KB/s
-                </span>
-              </div>
-              <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-purple-500 transition-all duration-500"
-                  style={{ width: `${p2pStatus.bufferPercent}%` }}
-                />
-              </div>
-              <p className="text-xs text-white/30 mt-1">
-                {p2pStatus.bufferPercent.toFixed(1)}% buffered
-              </p>
-            </div>
-          )}
-
           {/* TV: seasons + episodes */}
           {item.type === 'tv' && (
             <div>
-              {/* Seasons row: watchlist button + season tabs */}
-              <div className="flex items-center gap-2 mb-4">
+              {/* Action row for TV */}
+              <div className="flex gap-2.5 mb-5">
                 <button
                   data-focusable
                   onClick={() => toggle(item)}
-                  className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg
-                             bg-white/10 hover:bg-white/15 text-white/70 text-sm transition"
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl
+                             bg-white/[0.07] hover:bg-white/[0.12] text-white text-sm transition"
                 >
                   {inWatchlist ? (
                     <><Check size={14} className="text-green-400" /> Saved</>
@@ -748,25 +815,26 @@ export default function PlayModal({ item, onClose }: Props) {
                     <><Plus size={14} /> Save</>
                   )}
                 </button>
-                <div className="h-4 w-px bg-white/10 flex-shrink-0" />
-                <div className="flex gap-2 overflow-x-auto pb-0 no-scrollbar">
-                  {loadingSeasons ? (
-                    <Loader2 size={16} className="animate-spin text-white/30 my-1" />
-                  ) : displaySeasons.map((s) => (
-                    <button
-                      data-focusable
-                      key={s.key}
-                      onClick={() => setSelectedSeason(s.seasonNumber)}
-                      className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-                        selectedSeason === s.seasonNumber
-                          ? 'bg-red-600 text-white'
-                          : 'bg-white/10 text-white/60 hover:bg-white/15'
-                      }`}
-                    >
-                      {s.title}
-                    </button>
-                  ))}
-                </div>
+              </div>
+
+              {/* Season tabs */}
+              <div className="flex gap-1.5 mb-4 overflow-x-auto pb-0.5 no-scrollbar">
+                {loadingSeasons ? (
+                  <Loader2 size={16} className="animate-spin text-white/30 my-1" />
+                ) : displaySeasons.map((s) => (
+                  <button
+                    data-focusable
+                    key={s.key}
+                    onClick={() => setSelectedSeason(s.seasonNumber)}
+                    className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-xs font-medium transition ${
+                      selectedSeason === s.seasonNumber
+                        ? 'bg-white text-black'
+                        : 'bg-white/[0.07] text-white/50 hover:bg-white/[0.12] hover:text-white/70'
+                    }`}
+                  >
+                    {s.title}
+                  </button>
+                ))}
               </div>
 
               {loadingSeasons ? (
@@ -830,98 +898,150 @@ export default function PlayModal({ item, onClose }: Props) {
                         )}
                       </AnimatePresence>
 
-                      <div className="flex flex-col gap-1.5 max-h-96 overflow-y-auto pr-1">
-                        {episodes.map((ep) => {
-                          const pct = ep.playedPercentage ?? 0
-                          const isWatched = pct >= 90
-                          const hasProgress = pct >= 5 && pct < 90
-                          // Episode is released if: no airDate (fail-open), or airDate <= today
-                          const isEpReleased = !ep.airDate || new Date(ep.airDate) <= new Date()
-                          const isPlayable = item.tmdbId && !(item.premiumOnly && !isPremium) && isEpReleased
-                          return (
-                            <div
-                              key={ep.id}
-                              data-focusable={isPlayable ? true : undefined}
-                              onClick={isPlayable ? () => { setActiveMenu(null); handleEpisodePlay(ep) } : undefined}
-                              className={`group relative flex items-center gap-3 pl-0 pr-3 py-3.5 rounded-lg transition overflow-hidden ${
-                                isPlayable
-                                  ? 'bg-white/[0.03] hover:bg-white/[0.08] cursor-pointer'
-                                  : 'bg-white/[0.02] opacity-50'
-                              }`}
-                            >
-                              {/* Episode number + play icon overlay */}
-                              <div className="ep-num-box flex-shrink-0 w-10 h-10 rounded-md bg-white/[0.06] flex items-center justify-center relative transition">
-                                <span className={`ep-num-text text-sm font-bold tabular-nums transition ${
-                                  isPlayable ? 'text-white/40 group-hover:opacity-0' : 'text-white/20'
-                                }`}>
-                                  {ep.episodeNumber}
-                                </span>
-                                {isPlayable && (
-                                  <Play size={14} fill="white" className="text-white absolute opacity-0 group-hover:opacity-100 transition ml-0.5" />
-                                )}
-                                {!isEpReleased && (
-                                  <Lock size={12} className="text-white/20 absolute" />
-                                )}
-                              </div>
-
-                              {/* Title + status + air date */}
-                              <div className="flex-1 min-w-0">
-                                <p className={`text-sm font-medium truncate leading-snug ${isPlayable ? 'text-white/90' : 'text-white/30'}`}>
-                                  {ep.title}
-                                </p>
-                                {!isEpReleased && ep.airDate && (
-                                  <p className="text-[11px] text-white/25 mt-0.5">
-                                    {new Date(ep.airDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                                  </p>
-                                )}
-                                {hasProgress && isEpReleased && (
-                                  <div className="mt-2 h-1 w-full max-w-[140px] bg-white/10 rounded-full overflow-hidden">
-                                    <div className="h-full bg-red-500 rounded-full" style={{ width: `${pct}%` }} />
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Badges */}
-                              {!isEpReleased && (
-                                <span className="flex-shrink-0 text-[9px] font-semibold tracking-wide uppercase
-                                                 text-white/20 px-1.5 py-0.5 rounded bg-white/5">
-                                  Upcoming
-                                </span>
-                              )}
-                              {isEpReleased && isWatched && (
-                                <span className="flex-shrink-0 text-[9px] font-semibold tracking-wide uppercase
-                                                 text-emerald-400/70 px-1.5 py-0.5 rounded bg-emerald-500/10">
-                                  Watched
-                                </span>
-                              )}
-                              {item.premiumOnly && !isPremium && (
-                                <Lock size={11} className="flex-shrink-0 text-amber-400/40" />
-                              )}
-
-                              {/* 3-dot menu */}
-                              {ep.jellyfinId && (
+                      {/* Episode rail — tiny bars showing count + release status */}
+                      {episodes.length > 0 && (
+                        <div className="flex justify-center mb-3">
+                          <div className="flex gap-[3px]" style={{ width: `min(100%, ${episodes.length * 28}px)` }}>
+                            {episodes.map((ep, i) => {
+                              const isEpReleased = ep.availableAt ? new Date(ep.availableAt) <= new Date() : !ep.airDate || new Date(ep.airDate) <= new Date()
+                              const isCurrent = i === visibleEpIdx
+                              return (
                                 <button
-                                  data-focusable
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    if (activeMenu?.epId === ep.id) {
-                                      setActiveMenu(null)
-                                    } else {
-                                      const rect = e.currentTarget.getBoundingClientRect()
-                                      setActiveMenu({ epId: ep.id, top: rect.bottom + 4, right: window.innerWidth - rect.right })
-                                    }
-                                  }}
-                                  className="flex-shrink-0 w-6 h-6 rounded flex items-center justify-center
-                                             text-white/15 hover:text-white/60 hover:bg-white/10 transition opacity-0 group-hover:opacity-100"
-                                >
-                                  <MoreHorizontal size={13} />
-                                </button>
-                              )}
-                            </div>
-                          )
-                        })}
+                                  key={ep.id}
+                                  onClick={() => { setVisibleEpIdx(i); scrollToEp(i) }}
+                                  className={`h-[4px] flex-1 rounded-full transition-all duration-200 ${
+                                    isCurrent
+                                      ? 'bg-red-500 shadow-[0_0_6px_1px_rgba(239,68,68,0.5)]'
+                                      : isEpReleased
+                                        ? 'bg-white/25 hover:bg-white/40'
+                                        : 'bg-white/[0.06] hover:bg-white/10'
+                                  }`}
+                                  title={`Episode ${ep.episodeNumber}`}
+                                />
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Episode carousel — horizontal scroll */}
+                      <div className="relative">
+                        <div
+                          ref={carouselRef}
+                          onScroll={handleCarouselScroll}
+                          className="flex gap-3 overflow-x-auto scroll-smooth no-scrollbar pb-1"
+                        >
+                          {episodes.map((ep) => {
+                            const pct = ep.playedPercentage ?? 0
+                            const isWatched = pct >= 90
+                            const hasProgress = pct >= 5 && pct < 90
+                            const isEpReleased = ep.availableAt ? new Date(ep.availableAt) <= new Date() : !ep.airDate || new Date(ep.airDate) <= new Date()
+                            const isPlayable = !!(item.tmdbId && !(item.premiumOnly && !isPremium) && isEpReleased)
+                            return (
+                              <div
+                                key={ep.id}
+                                data-focusable
+                                onClick={isPlayable ? () => { setActiveMenu(null); handleEpisodePlay(ep) } : undefined}
+                                onFocus={() => setVisibleEpIdx(episodes.indexOf(ep))}
+                                onMouseEnter={() => setVisibleEpIdx(episodes.indexOf(ep))}
+                                className={`group relative flex-shrink-0 w-64 rounded-xl overflow-hidden transition ${
+                                  isPlayable
+                                    ? 'bg-white/[0.04] hover:bg-white/[0.08] cursor-pointer'
+                                    : 'bg-white/[0.02] opacity-25 grayscale cursor-default'
+                                }`}
+                              >
+                                {/* Still image or fallback */}
+                                <div className="relative h-36 bg-white/[0.03] overflow-hidden">
+                                  {ep.stillUrl ? (
+                                    <img src={ep.stillUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                      <span className="text-3xl font-bold text-white/[0.06] tabular-nums">{ep.episodeNumber}</span>
+                                    </div>
+                                  )}
+                                  {/* Play overlay */}
+                                  {isPlayable && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition">
+                                      <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center">
+                                        <Play size={16} fill="black" className="text-black ml-0.5" />
+                                      </div>
+                                    </div>
+                                  )}
+                                  {!isEpReleased && (
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                      <Lock size={20} className="text-white/20" />
+                                    </div>
+                                  )}
+                                  {/* Progress bar at bottom of image */}
+                                  {hasProgress && isEpReleased && (
+                                    <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-black/40">
+                                      <div className="h-full bg-red-500" style={{ width: `${pct}%` }} />
+                                    </div>
+                                  )}
+                                  {/* Badges */}
+                                  <div className="absolute top-2 right-2 flex gap-1">
+                                    {!isEpReleased && (
+                                      <span className="text-[9px] font-medium text-white/60 bg-black/50 backdrop-blur-sm px-1.5 py-0.5 rounded">
+                                        Upcoming
+                                      </span>
+                                    )}
+                                    {isEpReleased && isWatched && (
+                                      <span className="text-[9px] font-medium text-emerald-300 bg-black/50 backdrop-blur-sm px-1.5 py-0.5 rounded">
+                                        Watched
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Card body */}
+                                <div className="px-3 py-2.5">
+                                  <div className="flex items-baseline gap-2">
+                                    <span className="text-[10px] font-bold text-white/30 tabular-nums flex-shrink-0">
+                                      E{ep.episodeNumber}
+                                    </span>
+                                    <p className={`text-[13px] font-medium truncate ${isPlayable ? 'text-white/80' : 'text-white/30'}`}>
+                                      {ep.title}
+                                    </p>
+                                  </div>
+                                  {ep.overview && (
+                                    <p className="mt-1 text-[11px] text-white/30 leading-relaxed line-clamp-2">
+                                      {ep.overview}
+                                    </p>
+                                  )}
+                                  {!isEpReleased && (ep.availableAt || ep.airDate) && (
+                                    <p className="mt-1 text-[10px] text-white/20">
+                                      {ep.availableAt
+                                        ? new Date(ep.availableAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+                                        : new Date(ep.airDate!).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                    </p>
+                                  )}
+                                </div>
+
+                                {/* Context menu trigger */}
+                                {ep.jellyfinId && (
+                                  <button
+                                    data-focusable
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      if (activeMenu?.epId === ep.id) {
+                                        setActiveMenu(null)
+                                      } else {
+                                        const rect = e.currentTarget.getBoundingClientRect()
+                                        setActiveMenu({ epId: ep.id, top: rect.bottom + 4, right: window.innerWidth - rect.right })
+                                      }
+                                    }}
+                                    className="absolute top-2 left-2 w-6 h-6 rounded-md flex items-center justify-center
+                                               bg-black/40 text-white/40 hover:text-white/80 transition opacity-0 group-hover:opacity-100"
+                                  >
+                                    <MoreHorizontal size={13} />
+                                  </button>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
                         {episodes.length === 0 && (
-                          <p className="text-center text-white/30 text-sm py-6">No episodes found</p>
+                          <p className="text-center text-white/25 text-sm py-8">No episodes found</p>
                         )}
                       </div>
                     </>

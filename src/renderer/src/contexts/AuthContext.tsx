@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback, ReactNode 
 import * as api from '@/services/api'
 import type { User } from '@/types/media'
 import type { AccountEntry } from '@/types/electron'
+import { platform } from '@/platform'
 
 interface AuthState {
   user: User | null
@@ -23,18 +24,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [accounts, setAccounts] = useState<AccountEntry[]>([])
   const [loading, setLoading] = useState(true)
 
-  // Reload accounts list from electron-store
+  // Reload accounts list from platform storage
   const reloadAccounts = useCallback(async () => {
-    const stored = await window.electronAPI.auth.getAccounts()
+    const stored = await platform.auth.getAccounts()
     setAccounts(stored)
   }, [])
 
-  // On mount, restore session from electron-store
+  // On mount, restore session from platform storage
   useEffect(() => {
     async function restore() {
       try {
-        const storedAccounts = await window.electronAPI.auth.getAccounts()
-        const storedToken = await window.electronAPI.auth.getToken()
+        const storedAccounts = await platform.auth.getAccounts()
+        const storedToken = await platform.auth.getToken()
 
         if (storedAccounts.length > 0 && storedToken) {
           // Multi-account path
@@ -48,17 +49,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const me = await api.getMe()
           setUser(me)
           // Migrate to multi-account store
-          await window.electronAPI.auth.addAccount({
+          await platform.auth.addAccount({
             id: me.id,
             username: me.username,
             token: storedToken,
             avatarUrl: me.avatarUrl ?? null,
           })
-          const migrated = await window.electronAPI.auth.getAccounts()
+          const migrated = await platform.auth.getAccounts()
           setAccounts(migrated)
         }
       } catch {
-        await window.electronAPI.auth.clearToken()
+        await platform.auth.clearToken()
       } finally {
         setLoading(false)
       }
@@ -69,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (username: string, password: string) => {
     const res = await api.login(username, password)
     // Store as multi-account entry
-    await window.electronAPI.auth.addAccount({
+    await platform.auth.addAccount({
       id: res.user.id,
       username: res.user.username,
       token: res.token,
@@ -83,16 +84,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     const activeId = user?.id
     if (activeId) {
-      await window.electronAPI.auth.removeAccount(activeId)
+      await platform.auth.removeAccount(activeId)
     } else {
-      await window.electronAPI.auth.clearToken()
+      await platform.auth.clearToken()
     }
     // Check if other accounts remain
-    const remaining = await window.electronAPI.auth.getAccounts()
+    const remaining = await platform.auth.getAccounts()
     setAccounts(remaining)
     if (remaining.length > 0) {
       // Switch to first remaining account
-      await window.electronAPI.auth.switchAccount(remaining[0].id)
+      await platform.auth.switchAccount(remaining[0].id)
       setToken(remaining[0].token)
       const me = await api.getMe()
       setUser(me)
@@ -103,7 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user])
 
   const switchAccount = useCallback(async (accountId: string) => {
-    await window.electronAPI.auth.switchAccount(accountId)
+    await platform.auth.switchAccount(accountId)
     const acct = accounts.find(a => a.id === accountId)
     if (acct) {
       setToken(acct.token)
@@ -112,7 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(me)
       } catch {
         // Token expired — remove this account
-        await window.electronAPI.auth.removeAccount(accountId)
+        await platform.auth.removeAccount(accountId)
         await reloadAccounts()
         setToken(null)
         setUser(null)
@@ -121,13 +122,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [accounts, reloadAccounts])
 
   const removeAccount = useCallback(async (accountId: string) => {
-    await window.electronAPI.auth.removeAccount(accountId)
-    const remaining = await window.electronAPI.auth.getAccounts()
+    await platform.auth.removeAccount(accountId)
+    const remaining = await platform.auth.getAccounts()
     setAccounts(remaining)
     // If we removed the active account, switch or clear
     if (user?.id === accountId) {
       if (remaining.length > 0) {
-        await window.electronAPI.auth.switchAccount(remaining[0].id)
+        await platform.auth.switchAccount(remaining[0].id)
         setToken(remaining[0].token)
         const me = await api.getMe()
         setUser(me)
@@ -144,7 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(me)
       // Update stored account entry with fresh avatar
       if (me.id && token) {
-        await window.electronAPI.auth.addAccount({
+        await platform.auth.addAccount({
           id: me.id,
           username: me.username,
           token,

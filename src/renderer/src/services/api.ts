@@ -6,7 +6,6 @@ import type {
   User,
   ProgressItem,
   TrendingResponse,
-  P2PStatus
 } from '@/types/media'
 
 export const API_BASE = 'https://apiv.dawn-star.co.uk'
@@ -41,9 +40,11 @@ function normalizeUser(raw: Record<string, unknown>): User {
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
+import { platform } from '@/platform'
+
 async function getToken(): Promise<string | null> {
   try {
-    return await window.electronAPI.auth.getToken()
+    return await platform.auth.getToken()
   } catch {
     return null
   }
@@ -127,10 +128,7 @@ export async function searchItems(q: string): Promise<UnifiedMedia[]> {
   return res.results ?? []
 }
 
-export async function getJellyfinLatest(limit = 40): Promise<UnifiedMedia[]> {
-  const res = await request<{ success: boolean; items: UnifiedMedia[] }>(`/jellyfin/latest?limit=${limit}`)
-  return res.items ?? []
-}
+
 
 // ─── Playback ─────────────────────────────────────────────────────────────────
 
@@ -165,6 +163,16 @@ export async function reportProgress(body: {
   isPaused: boolean
   playSessionId: string
   isStopped?: boolean
+  seriesId?: string
+  // TMDB metadata — when present, backend saves to progress store in the same call
+  title?: string
+  posterUrl?: string | null
+  type?: string
+  year?: number | null
+  tmdbId?: number
+  seasonNumber?: number | null
+  episodeNumber?: number | null
+  episodeName?: string | null
 }): Promise<void> {
   return request('/jellyfin/progress', {
     method: 'POST',
@@ -247,6 +255,20 @@ export async function checkDigitalRelease(
   return { isReleased: res.isDigitallyReleased, releaseDate: res.digitalReleaseDate ?? undefined }
 }
 
+export interface TmdbDetail {
+  overview: string | null
+  backdropUrl: string | null
+  posterUrl: string | null
+  year: number | null
+  title: string | null
+  rating: number | null
+  genres: { id: number; name: string }[]
+}
+
+export async function getTmdbDetail(tmdbId: number, type: 'movie' | 'tv'): Promise<TmdbDetail> {
+  return request<TmdbDetail>(`/tmdb/detail/${type}/${tmdbId}`)
+}
+
 // ─── Watchlist ────────────────────────────────────────────────────────────────
 
 export async function getWatchlist(): Promise<UnifiedMedia[]> {
@@ -273,25 +295,21 @@ export async function getContinueWatching(): Promise<ProgressItem[]> {
   return res.items ?? []
 }
 
-/** Save enriched playback progress to the VALOR per-user progress store.
- *  This is what populates "Continue Watching" on both the website and client. */
-export async function reportUserProgress(body: {
+
+
+/** Remove an item from Continue Watching. Works with mediaId, seriesId, or resumeMediaId. */
+export async function deleteUserProgress(mediaId: string): Promise<void> {
+  return request(`/user-progress/${encodeURIComponent(mediaId)}`, { method: 'DELETE' })
+}
+
+/** Check if a specific item has saved progress (for resume prompt). */
+export async function getUserProgress(
   mediaId: string
-  positionTicks: number
-  durationTicks?: number
-  title?: string
-  posterUrl?: string | null
-  type?: string
-  year?: number | null
-  tmdbId?: number
-  overview?: string
-  seriesId?: string
-  isStopped?: boolean
-}): Promise<void> {
-  return request('/user-progress', {
-    method: 'POST',
-    body: JSON.stringify(body)
-  })
+): Promise<{ positionTicks: number; durationTicks: number; percent: number } | null> {
+  const res = await request<{ success: boolean; progress: { positionTicks: number; durationTicks: number; percent: number } | null }>(
+    `/user-progress/${encodeURIComponent(mediaId)}`
+  )
+  return res.progress ?? null
 }
 
 /** Jellyfin-native resume items — fallback when the VALOR progress store is empty. */
@@ -456,35 +474,6 @@ export async function downloadSubtitle(fileId: number | string, language = 'en')
   })
 }
 
-// ─── Playback state ───────────────────────────────────────────────────────────
-
-export async function markItemPlayed(itemId: string): Promise<void> {
-  return request(`/jellyfin/item-played/${encodeURIComponent(itemId)}`, { method: 'POST' })
-}
-
-export async function markItemUnplayed(itemId: string): Promise<void> {
-  return request(`/jellyfin/item-played/${encodeURIComponent(itemId)}`, { method: 'DELETE' })
-}
-
-// ─── P2P ─────────────────────────────────────────────────────────────────────
-
-export async function startP2P(body: {
-  query?: string
-  title?: string
-  year?: number
-  type?: string
-  magnetUri?: string
-}): Promise<{ infoHash: string }> {
-  return request('/p2p/start', { method: 'POST', body: JSON.stringify(body) })
-}
-
-export async function getP2PStatus(infoHash: string): Promise<P2PStatus> {
-  return request(`/p2p/status/${infoHash}`)
-}
-
-export async function cancelP2P(infoHash: string): Promise<void> {
-  return request(`/p2p/cancel/${infoHash}`, { method: 'POST' })
-}
 
 // ─── TMDB seasons / episodes ─────────────────────────────────────────────────
 
@@ -501,6 +490,10 @@ export interface TmdbEpisode {
   episodeNumber: number
   seasonNumber: number
   airDate: string | null
+  /** Exact UTC timestamp when episode becomes available (from TVDB air time resolution) */
+  availableAt?: string | null
+  overview?: string | null
+  stillUrl?: string | null
 }
 
 export async function getTmdbSeasons(tmdbId: number): Promise<TmdbSeason[]> {
@@ -515,24 +508,96 @@ export async function getTmdbEpisodes(tmdbId: number, seasonNumber: number): Pro
   return res.episodes ?? []
 }
 
+// ─── Browse / filter ──────────────────────────────────────────────────────────
+
+export interface BrowseParams {
+  type: 'movie' | 'tv'
+  genres?: string
+  rating?: number
+  anime?: boolean
+  year?: string
+  language?: string
+  sort?: 'popularity' | 'rating' | 'newest' | 'title'
+  page?: number
+}
+
+export interface BrowseResponse {
+  items: UnifiedMedia[]
+  page: number
+  totalPages: number
+  totalResults: number
+}
+
+export async function browse(params: BrowseParams): Promise<BrowseResponse> {
+  const p = new URLSearchParams()
+  if (params.genres) p.set('genres', params.genres)
+  if (params.rating) p.set('rating', String(params.rating))
+  if (params.anime) p.set('anime', '1')
+  if (params.year) p.set('year', params.year)
+  if (params.language) p.set('language', params.language)
+  if (params.sort) p.set('sort', params.sort)
+  if (params.page && params.page > 1) p.set('page', String(params.page))
+  const qs = p.toString()
+  const res = await request<{ success: boolean } & BrowseResponse>(`/browse/${params.type}${qs ? '?' + qs : ''}`)
+  return { items: res.items ?? [], page: res.page ?? 1, totalPages: res.totalPages ?? 1, totalResults: res.totalResults ?? 0 }
+}
+
 // ─── Home categories ──────────────────────────────────────────────────────────
 
 export interface HomeCategories {
+  // Movies
   topRatedMovies: UnifiedMedia[]
   actionMovies: UnifiedMedia[]
   comedyMovies: UnifiedMedia[]
+  horrorMovies: UnifiedMedia[]
+  thrillerMovies: UnifiedMedia[]
+  dramaMovies: UnifiedMedia[]
+  romanceMovies: UnifiedMedia[]
+  animationMovies: UnifiedMedia[]
+  nowPlayingMovies: UnifiedMedia[]
+  upcomingMovies: UnifiedMedia[]
+  documentaryMovies: UnifiedMedia[]
+  familyMovies: UnifiedMedia[]
+  warMovies: UnifiedMedia[]
+  // TV
   topRatedTv: UnifiedMedia[]
   sciFiTv: UnifiedMedia[]
+  dramaTv: UnifiedMedia[]
+  crimeTv: UnifiedMedia[]
+  comedyTv: UnifiedMedia[]
+  actionAdventureTv: UnifiedMedia[]
+  mysteryTv: UnifiedMedia[]
+  animationTv: UnifiedMedia[]
+  documentaryTv: UnifiedMedia[]
+  realityTv: UnifiedMedia[]
 }
 
 export async function getHomeCategories(): Promise<HomeCategories> {
-  const res = await request<{ success: boolean } & HomeCategories>('/home/categories')
+  const res = await request<{ success: boolean } & Partial<HomeCategories>>('/home/categories')
   return {
     topRatedMovies: res.topRatedMovies ?? [],
     actionMovies: res.actionMovies ?? [],
     comedyMovies: res.comedyMovies ?? [],
+    horrorMovies: res.horrorMovies ?? [],
+    thrillerMovies: res.thrillerMovies ?? [],
+    dramaMovies: res.dramaMovies ?? [],
+    romanceMovies: res.romanceMovies ?? [],
+    animationMovies: res.animationMovies ?? [],
+    nowPlayingMovies: res.nowPlayingMovies ?? [],
+    upcomingMovies: res.upcomingMovies ?? [],
+    documentaryMovies: res.documentaryMovies ?? [],
+    familyMovies: res.familyMovies ?? [],
+    warMovies: res.warMovies ?? [],
     topRatedTv: res.topRatedTv ?? [],
     sciFiTv: res.sciFiTv ?? [],
+    dramaTv: res.dramaTv ?? [],
+    crimeTv: res.crimeTv ?? [],
+    comedyTv: res.comedyTv ?? [],
+    actionAdventureTv: res.actionAdventureTv ?? [],
+    mysteryTv: res.mysteryTv ?? [],
+    animationTv: res.animationTv ?? [],
+    documentaryTv: res.documentaryTv ?? [],
+    realityTv: res.realityTv ?? [],
   }
 }
 
@@ -571,6 +636,8 @@ export interface StreamStatus {
   creditsStartSec?: number | null
   introStartSec?: number | null
   introEndSec?: number | null
+  directStreamUrl?: string
+  mpvOptions?: Record<string, string>
   error?: string
 }
 
