@@ -484,12 +484,12 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
   }
 
   async function handleMarkWatched(ep: MergedEpisode, watched: boolean) {
-    if (!ep.jellyfinId) return
+    const mediaId = ep.jellyfinId || ep.id
     setActiveMenu(null)
     try {
       if (watched) {
         await api.reportProgress({
-          itemId: ep.jellyfinId,
+          itemId: mediaId,
           positionTicks: 1,
           durationTicks: 1,
           isPaused: true,
@@ -504,7 +504,7 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
           episodeName: ep.title,
         })
       } else {
-        await api.deleteUserProgress(ep.jellyfinId)
+        await api.deleteUserProgress(mediaId)
       }
       setEpisodes((prev) =>
         prev.map((e) => e.id === ep.id ? { ...e, playedPercentage: watched ? 100 : 0 } : e)
@@ -1006,47 +1006,48 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
 
                                 {/* Card body */}
                                 <div className="px-3 py-2.5">
-                                  <div className="flex items-baseline gap-2">
-                                    <span className="text-[10px] font-bold text-white/30 tabular-nums flex-shrink-0">
-                                      E{ep.episodeNumber}
-                                    </span>
-                                    <p className={`text-[13px] font-medium truncate ${isPlayable ? 'text-white/80' : 'text-white/30'}`}>
-                                      {ep.title}
-                                    </p>
+                                  <div className="flex items-start gap-2">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-baseline gap-2">
+                                        <span className="text-[10px] font-bold text-white/30 tabular-nums flex-shrink-0">
+                                          E{ep.episodeNumber}
+                                        </span>
+                                        <p className={`text-[13px] font-medium truncate ${isPlayable ? 'text-white/80' : 'text-white/30'}`}>
+                                          {ep.title}
+                                        </p>
+                                      </div>
+                                      {ep.overview && (
+                                        <p className="mt-1 text-[11px] text-white/30 leading-relaxed line-clamp-2">
+                                          {ep.overview}
+                                        </p>
+                                      )}
+                                      {!isEpReleased && (ep.availableAt || ep.airDate) && (
+                                        <p className="mt-1 text-[10px] text-white/20">
+                                          {ep.availableAt
+                                            ? new Date(ep.availableAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+                                            : new Date(ep.airDate!).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                        </p>
+                                      )}
+                                    </div>
+                                    {/* 3-dot menu */}
+                                    <button
+                                      data-focusable
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (activeMenu?.epId === ep.id) {
+                                          setActiveMenu(null)
+                                        } else {
+                                          const rect = e.currentTarget.getBoundingClientRect()
+                                          setActiveMenu({ epId: ep.id, top: rect.bottom + 4, right: window.innerWidth - rect.right })
+                                        }
+                                      }}
+                                      className="flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center
+                                                 text-white/20 hover:text-white/60 hover:bg-white/10 transition"
+                                    >
+                                      <MoreHorizontal size={13} />
+                                    </button>
                                   </div>
-                                  {ep.overview && (
-                                    <p className="mt-1 text-[11px] text-white/30 leading-relaxed line-clamp-2">
-                                      {ep.overview}
-                                    </p>
-                                  )}
-                                  {!isEpReleased && (ep.availableAt || ep.airDate) && (
-                                    <p className="mt-1 text-[10px] text-white/20">
-                                      {ep.availableAt
-                                        ? new Date(ep.availableAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-                                        : new Date(ep.airDate!).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                                    </p>
-                                  )}
                                 </div>
-
-                                {/* Context menu trigger */}
-                                {ep.jellyfinId && (
-                                  <button
-                                    data-focusable
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      if (activeMenu?.epId === ep.id) {
-                                        setActiveMenu(null)
-                                      } else {
-                                        const rect = e.currentTarget.getBoundingClientRect()
-                                        setActiveMenu({ epId: ep.id, top: rect.bottom + 4, right: window.innerWidth - rect.right })
-                                      }
-                                    }}
-                                    className="absolute top-2 left-2 w-6 h-6 rounded-md flex items-center justify-center
-                                               bg-black/40 text-white/40 hover:text-white/80 transition opacity-0 group-hover:opacity-100"
-                                  >
-                                    <MoreHorizontal size={13} />
-                                  </button>
-                                )}
                               </div>
                             )
                           })}
