@@ -355,26 +355,43 @@ function createPlayerWindow(): void {
   // Click-through: transparent areas pass events to mpv (inside playerWindow)
   overlayWindow.setIgnoreMouseEvents(true, { forward: true })
 
-  // Sync both windows when moved between monitors (Win+Shift+Arrow)
+  // Sync both windows when moved (Win+Shift+Arrow, drag, etc.)
+  // The overlay and playerWindow are separate native windows — when one moves
+  // we need to manually move the other to match.
   let syncingWindows = false
-  function syncWindowsToDisplay(movedWindow: BrowserWindow, otherWindow: BrowserWindow | null) {
+  function syncWindows(movedWindow: BrowserWindow, otherWindow: BrowserWindow | null) {
     if (syncingWindows || !otherWindow || otherWindow.isDestroyed()) return
-    syncingWindows = true
-    const bounds = movedWindow.getBounds()
-    const targetDisplay = screen.getDisplayMatching(bounds)
+    const movedBounds = movedWindow.getBounds()
     const otherBounds = otherWindow.getBounds()
-    const otherDisplay = screen.getDisplayMatching(otherBounds)
-    if (targetDisplay.id !== otherDisplay.id) {
-      const { x: dx, y: dy } = targetDisplay.bounds
-      otherWindow.setBounds({ x: dx, y: dy, width: targetDisplay.bounds.width, height: targetDisplay.bounds.height })
-      otherWindow.maximize()
-      // Re-maximize the moved window too in case it was unmaximized during the move
-      movedWindow.maximize()
+    // Only sync if bounds actually differ (avoid feedback loop)
+    if (movedBounds.x === otherBounds.x && movedBounds.y === otherBounds.y &&
+        movedBounds.width === otherBounds.width && movedBounds.height === otherBounds.height) {
+      return
     }
-    syncingWindows = false
+    syncingWindows = true
+    try {
+      // Move other window to the new display, then maximize
+      const targetDisplay = screen.getDisplayMatching(movedBounds)
+      otherWindow.setBounds({
+        x: targetDisplay.bounds.x,
+        y: targetDisplay.bounds.y,
+        width: targetDisplay.bounds.width,
+        height: targetDisplay.bounds.height,
+      })
+      otherWindow.maximize()
+      // Also re-maximize the moved window in case Win+Shift+Arrow left it un-maximized
+      const movedDisplay = screen.getDisplayMatching(movedWindow.getBounds())
+      if (movedDisplay.id === targetDisplay.id) movedWindow.maximize()
+    } finally {
+      // Defer the flag reset so the setBounds call's own move event is ignored
+      setTimeout(() => { syncingWindows = false }, 50)
+    }
   }
-  playerWindow.on('move', () => syncWindowsToDisplay(playerWindow!, overlayWindow))
-  overlayWindow.on('move', () => syncWindowsToDisplay(overlayWindow!, playerWindow))
+  playerWindow.on('move', () => syncWindows(playerWindow!, overlayWindow))
+  overlayWindow.on('move', () => syncWindows(overlayWindow!, playerWindow))
+  // Also listen for resize (Win+Up to maximize, snap layouts, etc.)
+  playerWindow.on('resize', () => syncWindows(playerWindow!, overlayWindow))
+  overlayWindow.on('resize', () => syncWindows(overlayWindow!, playerWindow))
 
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
   if (rendererUrl) {
