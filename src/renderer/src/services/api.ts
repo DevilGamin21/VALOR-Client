@@ -323,6 +323,30 @@ export async function getJellyfinResume(): Promise<UnifiedMedia[]> {
   }))
 }
 
+/** Get list of watched episode keys for a series (e.g. ["S1E1", "S1E3"]) */
+export async function getWatchedEpisodes(tmdbId: number): Promise<string[]> {
+  const res = await request<{ success: boolean; episodes: string[] }>(
+    `/user-progress/watched-episodes/${tmdbId}`
+  )
+  return res.episodes ?? []
+}
+
+/** Mark episodes as watched */
+export async function addWatchedEpisodes(tmdbId: number, episodes: string[]): Promise<void> {
+  await request(`/user-progress/watched-episodes/${tmdbId}`, {
+    method: 'POST',
+    body: JSON.stringify({ episodes }),
+  })
+}
+
+/** Remove episodes from watched */
+export async function removeWatchedEpisodes(tmdbId: number, episodes: string[]): Promise<void> {
+  await request(`/user-progress/watched-episodes/${tmdbId}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ episodes }),
+  })
+}
+
 // ─── Profile ──────────────────────────────────────────────────────────────────
 // Backend has no GET /profile endpoint — /me returns the same user data.
 

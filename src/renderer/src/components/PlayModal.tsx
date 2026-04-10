@@ -498,28 +498,20 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
   }
 
   async function handleMarkWatched(ep: MergedEpisode, watched: boolean) {
-    const mediaId = ep.jellyfinId || ep.id
+    if (!item.tmdbId) return
+    const key = `S${ep.seasonNumber}E${ep.episodeNumber}`
     setActiveMenu(null)
     try {
       if (watched) {
-        await api.reportProgress({
-          itemId: mediaId,
-          positionTicks: 1,
-          durationTicks: 1,
-          isPaused: true,
-          playSessionId: '',
-          seriesId: resolvedSeriesId || item.seriesId,
-          title: item.title,
-          posterUrl: item.posterUrl,
-          type: 'tv',
-          tmdbId: item.tmdbId,
-          seasonNumber: ep.seasonNumber,
-          episodeNumber: ep.episodeNumber,
-          episodeName: ep.title,
-        })
+        await api.addWatchedEpisodes(item.tmdbId, [key])
       } else {
-        await api.deleteUserProgress(mediaId)
+        await api.removeWatchedEpisodes(item.tmdbId, [key])
       }
+      setWatchedEpKeys((prev) => {
+        const next = new Set(prev)
+        if (watched) next.add(key); else next.delete(key)
+        return next
+      })
       setEpisodes((prev) =>
         prev.map((e) => e.id === ep.id ? { ...e, playedPercentage: watched ? 100 : 0 } : e)
       )
