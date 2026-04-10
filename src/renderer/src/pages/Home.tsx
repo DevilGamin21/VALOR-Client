@@ -155,6 +155,23 @@ export default function Home() {
     wasOpenRef.current = isOpen
   }, [isOpen])
 
+  // Auto-refresh continue watching every 20s so progress from other
+  // devices (Android, TV, Connect remote) shows up without a page reload.
+  useEffect(() => {
+    const id = setInterval(() => {
+      api.getContinueWatching()
+        .then(async (cw) => {
+          let cwItems = mapContinueWatching(cw)
+          if (cwItems.length === 0) {
+            cwItems = await api.getJellyfinResume().catch(() => [])
+          }
+          setContinueWatching(cwItems)
+        })
+        .catch(() => {})
+    }, 20_000)
+    return () => clearInterval(id)
+  }, [])
+
   useEffect(() => {
     if (!query) {
       setSearchResults([])

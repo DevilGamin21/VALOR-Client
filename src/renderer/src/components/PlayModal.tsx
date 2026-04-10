@@ -213,7 +213,7 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
     setResumeEp(null)
 
     async function load() {
-      const [tmdbEps, jfEps] = await Promise.all([
+      const [tmdbEps, jfEps, watchedEps] = await Promise.all([
         item.tmdbId
           ? api.getTmdbEpisodes(item.tmdbId!, selectedSeason!).catch(() => [] as api.TmdbEpisode[])
           : Promise.resolve([] as api.TmdbEpisode[]),
@@ -225,34 +225,48 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
           const epSeriesId = resolvedSeriesId || item.seriesId || String(item.id)
           return api.getEpisodes(epSeriesId, jSeason.id).catch(() => [] as Episode[])
         })(),
+        // Fetch user-progress watched episodes (e.g. ["S1E1", "S1E3"])
+        item.tmdbId
+          ? api.getWatchedEpisodes(item.tmdbId!).catch(() => [] as string[])
+          : Promise.resolve([] as string[]),
       ])
+
+      // Build a set for O(1) lookup: "S1E3" → watched
+      const watchedSet = new Set(watchedEps)
 
       if (tmdbEps.length > 0) {
         const jMap = new Map(jfEps.map((ep) => [ep.episodeNumber, ep.id]))
         const jProgressMap = new Map(jfEps.map((ep) => [ep.episodeNumber, ep.playedPercentage]))
-        return tmdbEps.map((ep): MergedEpisode => ({
-          id: ep.id,
-          title: ep.title,
-          episodeNumber: ep.episodeNumber,
-          seasonNumber: ep.seasonNumber,
-          jellyfinId: jMap.get(ep.episodeNumber),
-          playedPercentage: jProgressMap.get(ep.episodeNumber),
-          airDate: ep.airDate,
-          availableAt: ep.availableAt,
-          overview: ep.overview,
-          stillUrl: ep.stillUrl,
-        }))
+        return tmdbEps.map((ep): MergedEpisode => {
+          const jfProgress = jProgressMap.get(ep.episodeNumber)
+          const userWatched = watchedSet.has(`S${ep.seasonNumber}E${ep.episodeNumber}`)
+          return {
+            id: ep.id,
+            title: ep.title,
+            episodeNumber: ep.episodeNumber,
+            seasonNumber: ep.seasonNumber,
+            jellyfinId: jMap.get(ep.episodeNumber),
+            playedPercentage: jfProgress ?? (userWatched ? 100 : undefined),
+            airDate: ep.airDate,
+            availableAt: ep.availableAt,
+            overview: ep.overview,
+            stillUrl: ep.stillUrl,
+          }
+        })
       }
 
-      return jfEps.map((ep): MergedEpisode => ({
-        id: ep.id,
-        title: ep.name,
-        episodeNumber: ep.episodeNumber,
-        seasonNumber: ep.seasonNumber,
-        jellyfinId: ep.id,
-        playedPercentage: ep.playedPercentage,
-        airDate: null,
-      }))
+      return jfEps.map((ep): MergedEpisode => {
+        const userWatched = watchedSet.has(`S${ep.seasonNumber}E${ep.episodeNumber}`)
+        return {
+          id: ep.id,
+          title: ep.name,
+          episodeNumber: ep.episodeNumber,
+          seasonNumber: ep.seasonNumber,
+          jellyfinId: ep.id,
+          playedPercentage: ep.playedPercentage ?? (userWatched ? 100 : undefined),
+          airDate: null,
+        }
+      })
     }
 
     load()
