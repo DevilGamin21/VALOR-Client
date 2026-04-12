@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useSettings, detectDirectPlaySupport, type QualityPreset, type SubtitleSize, type PlayerEngine } from '@/contexts/SettingsContext'
-import { Zap, Film, Mic2, Subtitles, SkipForward, RotateCcw, Info, Cpu, CheckCircle2, XCircle, RefreshCw, AlertTriangle, MessageSquare, Monitor } from 'lucide-react'
+import { useSettings, detectDirectPlaySupport, type QualityPreset, type SubtitleSize, type PlayerEngine, type UiMode } from '@/contexts/SettingsContext'
+import { Zap, Film, Mic2, Subtitles, SkipForward, RotateCcw, Info, Cpu, CheckCircle2, XCircle, RefreshCw, AlertTriangle, MessageSquare, Monitor, Tv } from 'lucide-react'
 import { platform } from '@/platform'
 import { isTv } from '@/hooks/usePlatform'
 
@@ -65,7 +65,7 @@ export default function Settings() {
     preferredAudioLang, preferredSubtitleLang,
     subtitleSize, subtitleBgOpacity,
     hasRunHardwareScan, detectedDirectPlay,
-    discordRPC, playerEngine,
+    discordRPC, playerEngine, uiMode,
     update, reset,
   } = useSettings()
 
@@ -249,6 +249,43 @@ export default function Settings() {
             </div>
           </div>
         )}
+        {/* UI Mode */}
+        <div className="rounded-xl bg-white/5 border border-white/8 p-4 space-y-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Tv size={15} className="text-white/50 flex-shrink-0" />
+              <p className="text-sm font-medium text-white">UI Mode</p>
+            </div>
+            <p className="text-xs text-white/45 mt-1.5 leading-relaxed">
+              Switch between desktop and TV interfaces. TV mode uses a full-screen 10-foot UI
+              optimized for controllers and remote viewing. The app will reload to apply.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { value: 'desktop' as UiMode, label: 'Desktop', desc: 'Sidebar layout, mouse + keyboard' },
+              { value: 'tv' as UiMode, label: 'TV Mode', desc: 'Full-screen, D-pad + controller' },
+            ]).map((opt) => (
+              <button
+                data-focusable
+                key={opt.value}
+                onClick={() => {
+                  update({ uiMode: opt.value })
+                  // Reload to apply the UI mode change cleanly
+                  setTimeout(() => window.location.reload(), 300)
+                }}
+                className={`text-left px-3 py-2.5 rounded-lg border transition ${
+                  uiMode === opt.value
+                    ? 'bg-red-600/20 border-red-500/50 text-white'
+                    : 'bg-white/5 border-white/8 text-white/60 hover:bg-white/8 hover:text-white'
+                }`}
+              >
+                <p className="text-sm font-medium">{opt.label}</p>
+                <p className="text-[10px] text-white/40 mt-0.5 leading-tight">{opt.desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* ── Integrations — desktop only ──────────────────────────────────────── */}

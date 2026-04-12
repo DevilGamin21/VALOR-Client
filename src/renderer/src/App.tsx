@@ -3,10 +3,11 @@ import { AuthProvider } from '@/contexts/AuthContext'
 import { PlayerProvider } from '@/contexts/PlayerContext'
 import { GamepadNavProvider } from '@/contexts/GamepadNavContext'
 import { WatchlistProvider } from '@/contexts/WatchlistContext'
-import { SettingsProvider } from '@/contexts/SettingsContext'
+import { SettingsProvider, useSettings } from '@/contexts/SettingsContext'
 import { ConnectProvider } from '@/contexts/ConnectContext'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import RootShell from '@/components/RootShell'
+import TvRootShell from '@/components/tv/TvRootShell'
 import Login from '@/pages/Login'
 import Home from '@/pages/Home'
 import Movies from '@/pages/Movies'
@@ -18,6 +19,18 @@ import Settings from '@/pages/Settings'
 import Discover from '@/pages/Discover'
 import Connect from '@/pages/Connect'
 import PlayerOverlay from '@/pages/PlayerOverlay'
+
+/** Switches between desktop and TV root shell based on uiMode setting */
+function AppShell() {
+  const { uiMode } = useSettings()
+  const Shell = uiMode === 'tv' ? TvRootShell : RootShell
+  return (
+    <ProtectedRoute>
+      <Shell />
+    </ProtectedRoute>
+  )
+}
+
 export default function App() {
   return (
     <HashRouter>
@@ -31,14 +44,7 @@ export default function App() {
                 <Route path="/login" element={<Login />} />
                 {/* mpv overlay — rendered in a separate transparent BrowserWindow */}
                 <Route path="/player-overlay" element={<PlayerOverlay />} />
-                <Route
-                  path="/"
-                  element={
-                    <ProtectedRoute>
-                      <RootShell />
-                    </ProtectedRoute>
-                  }
-                >
+                <Route path="/" element={<AppShell />}>
                   <Route index element={<Navigate to="/home" replace />} />
                   <Route path="home" element={<Home />} />
                   <Route path="movies" element={<Movies />} />

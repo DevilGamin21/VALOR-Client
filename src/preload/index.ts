@@ -22,7 +22,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     isMaximized: (): Promise<boolean> => ipcRenderer.invoke('win:isMaximized'),
     onMaximizedChange: (cb: (maximized: boolean) => void): void => {
       ipcRenderer.on('win:maximized', (_e, value: boolean) => cb(value))
-    }
+    },
+    setFullScreen: (full: boolean): Promise<void> => ipcRenderer.invoke('win:setFullScreen', full),
   },
   updates: {
     download: (): Promise<void> => ipcRenderer.invoke('update:download'),

@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useCallback, useEffect, ReactNode 
 export type QualityPreset = 'original' | '1440p' | '1080p' | '720p' | '480p'
 export type SubtitleSize = 'small' | 'medium' | 'large' | 'xl'
 export type PlayerEngine = 'builtin' | 'mpv'
+export type UiMode = 'desktop' | 'tv'
 
 export interface AppSettings {
   /** Default quality when starting playback. Lower = faster transcode start. */
@@ -28,6 +29,8 @@ export interface AppSettings {
   discordRPC: boolean
   /** Player engine: 'builtin' uses HTML5 <video> + HLS.js, 'mpv' launches external mpv player. */
   playerEngine: PlayerEngine
+  /** UI mode: 'desktop' = sidebar layout, 'tv' = full-screen 10-foot UI with D-pad navigation. */
+  uiMode: UiMode
 }
 
 const DEFAULTS: AppSettings = {
@@ -42,6 +45,7 @@ const DEFAULTS: AppSettings = {
   subtitleBgOpacity: 0.75,
   discordRPC: true,
   playerEngine: 'builtin',
+  uiMode: 'desktop',
 }
 
 /** Test whether the local GPU can hardware-decode H.264 1080p smoothly.

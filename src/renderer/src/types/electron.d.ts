@@ -67,6 +67,7 @@ declare global {
         close: () => Promise<void>
         isMaximized: () => Promise<boolean>
         onMaximizedChange: (cb: (maximized: boolean) => void) => void
+        setFullScreen: (full: boolean) => Promise<void>
       }
       updates: {
         download: () => Promise<void>

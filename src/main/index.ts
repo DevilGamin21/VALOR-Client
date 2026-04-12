@@ -189,6 +189,10 @@ ipcMain.handle('win:maximize', () => {
 })
 ipcMain.handle('win:close', () => mainWindow?.close())
 ipcMain.handle('win:isMaximized', () => mainWindow?.isMaximized() ?? false)
+ipcMain.handle('win:setFullScreen', (_e, full: boolean) => {
+  if (!mainWindow) return
+  mainWindow.setFullScreen(full)
+})
 
 // ─── Auth token IPC (multi-account) ───────────────────────────────────────────
 ipcMain.handle('auth:getToken', () => {
