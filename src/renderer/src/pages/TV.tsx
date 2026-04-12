@@ -5,10 +5,11 @@ import { Loader2 } from 'lucide-react'
 import * as api from '@/services/api'
 import MediaRow from '@/components/MediaRow'
 import MovieCard from '@/components/MovieCard'
-import PlayModal from '@/components/PlayModal'
+import PlayModal from '@/components/tv/TvPlayModalWrapper'
 import FilterBar, { type FilterState, DEFAULT_FILTERS, hasActiveFilters } from '@/components/FilterBar'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useSettings } from '@/contexts/SettingsContext'
+import { isTv } from '@/hooks/usePlatform'
 import type { UnifiedMedia, TrendingResponse } from '@/types/media'
 
 export default function TV() {
@@ -124,7 +125,7 @@ export default function TV() {
 
   return (
     <div className="pb-8 pt-6">
-      {!q && (
+      {!q && !isTv && (
         <div className="px-6 mb-5">
           <FilterBar type="tv" filters={filters} onChange={setFilters} />
         </div>

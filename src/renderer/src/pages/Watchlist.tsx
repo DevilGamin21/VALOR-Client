@@ -4,7 +4,7 @@ import { Bookmark } from 'lucide-react'
 import { useWatchlist } from '@/contexts/WatchlistContext'
 import MovieCard from '@/components/MovieCard'
 import TvMediaCard from '@/components/tv/TvMediaCard'
-import PlayModal from '@/components/PlayModal'
+import PlayModal from '@/components/tv/TvPlayModalWrapper'
 import { isTv } from '@/hooks/usePlatform'
 import type { UnifiedMedia } from '@/types/media'
 
