@@ -964,7 +964,6 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       const results = await api.searchSubtitles({
         query: query || osQuery.trim() || undefined,
         tmdbId: job.tmdbId ?? undefined,
-        type: job.type === 'tv' ? 'tv' : 'movie',
         season,
         episode,
       })
