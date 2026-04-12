@@ -748,8 +748,8 @@ export default function PlayerOverlay() {
         query: query || osQuery.trim() || undefined,
         tmdbId: job?.tmdbId ?? undefined,
         type: job?.type === 'tv' ? 'tv' : 'movie',
-        season,
-        episode,
+        season: season ?? undefined,
+        episode: episode ?? undefined,
       })
       results.sort((a, b) => b.downloadCount - a.downloadCount)
       setOsResults(results)

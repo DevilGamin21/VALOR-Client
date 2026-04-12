@@ -964,8 +964,9 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       const results = await api.searchSubtitles({
         query: query || osQuery.trim() || undefined,
         tmdbId: job.tmdbId ?? undefined,
-        season,
-        episode,
+        type: job.type === 'tv' ? 'tv' : 'movie',
+        season: season ?? undefined,
+        episode: episode ?? undefined,
       })
       // Sort by download count descending (most popular first)
       results.sort((a, b) => b.downloadCount - a.downloadCount)
