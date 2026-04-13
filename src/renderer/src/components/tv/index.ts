@@ -1,0 +1,11 @@
+// TV component barrel export — prevents accidental deletion of the directory
+export { default as TvRootShell } from './TvRootShell'
+export { default as TopBar } from './TopBar'
+export { default as TvMediaCard } from './TvMediaCard'
+export { default as TvMediaRow } from './TvMediaRow'
+export { default as TvHero } from './TvHero'
+export { default as TvDetailPage } from './TvDetailPage'
+export { default as TvVideoPlayer } from './TvVideoPlayer'
+export { default as TvPlayerControls } from './TvPlayerControls'
+export { default as TvSearchOverlay } from './TvSearchOverlay'
+export { default as TvPlayModalWrapper } from './TvPlayModalWrapper'
