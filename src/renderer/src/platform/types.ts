@@ -1,0 +1,7 @@
+import type { AccountEntry } from '@/types/electron'
+export interface PlatformAuth { getToken(): Promise<string | null>; setToken(token: string): Promise<void>; clearToken(): Promise<void>; getAccounts(): Promise<AccountEntry[]>; addAccount(account: AccountEntry): Promise<void>; removeAccount(id: string): Promise<void>; switchAccount(id: string): Promise<void> }
+export interface PlatformUpdates { check(): Promise<void>; download(): Promise<void>; install(): Promise<void>; onAvailable(cb: (info: { version: string; releaseNotes: string | null }) => void): void; onProgress(cb: (progress: { percent: number; bytesPerSecond: number }) => void): void; onDownloaded(cb: (info: { version: string }) => void): void; onError(cb: (message: string) => void): void }
+export interface PlatformDiscord { setActivity(activity: Record<string, unknown>): Promise<void>; clearActivity(): Promise<void> }
+export interface PlatformWindow { minimize(): Promise<void>; maximize(): Promise<void>; close(): Promise<void>; isMaximized(): Promise<boolean>; onMaximizedChange(cb: (maximized: boolean) => void): void }
+export interface PlatformSystem { sleep(): Promise<void> }
+export interface PlatformAdapter { readonly name: string; readonly supportsMpv: boolean; readonly supportsDiscord: boolean; readonly hasWindowControls: boolean; readonly tvLayout: boolean; auth: PlatformAuth; updates: PlatformUpdates; discord: PlatformDiscord; window: PlatformWindow; system: PlatformSystem }
