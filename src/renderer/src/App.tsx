@@ -3,11 +3,12 @@ import { AuthProvider } from '@/contexts/AuthContext'
 import { PlayerProvider } from '@/contexts/PlayerContext'
 import { GamepadNavProvider } from '@/contexts/GamepadNavContext'
 import { WatchlistProvider } from '@/contexts/WatchlistContext'
-import { SettingsProvider, useSettings } from '@/contexts/SettingsContext'
+import { SettingsProvider } from '@/contexts/SettingsContext'
 import { ConnectProvider } from '@/contexts/ConnectContext'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import RootShell from '@/components/RootShell'
 import TvRootShell from '@/components/tv/TvRootShell'
+import { useSettings } from '@/contexts/SettingsContext'
 import Login from '@/pages/Login'
 import Home from '@/pages/Home'
 import Movies from '@/pages/Movies'
@@ -20,7 +21,6 @@ import Discover from '@/pages/Discover'
 import Connect from '@/pages/Connect'
 import PlayerOverlay from '@/pages/PlayerOverlay'
 
-/** Switches between desktop and TV root shell based on uiMode setting */
 function AppShell() {
   const { uiMode } = useSettings()
   const Shell = uiMode === 'tv' ? TvRootShell : RootShell
