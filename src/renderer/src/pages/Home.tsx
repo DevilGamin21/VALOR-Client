@@ -7,13 +7,9 @@ import MediaRow from '@/components/MediaRow'
 import MovieCard from '@/components/MovieCard'
 import PlayModal from '@/components/tv/TvPlayModalWrapper'
 import DynamicHero from '@/components/DynamicHero'
-import TvMediaRow from '@/components/tv/TvMediaRow'
-import TvMediaCard from '@/components/tv/TvMediaCard'
-import TvHero from '@/components/tv/TvHero'
+import { isTv } from '@/hooks/usePlatform'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useSettings, QUALITY_BITRATES } from '@/contexts/SettingsContext'
-import { platform } from '@/platform'
-import { isTv } from '@/hooks/usePlatform'
 import type { UnifiedMedia, TrendingResponse, ProgressItem, PlayJob } from '@/types/media'
 
 function mapContinueWatching(cw: ProgressItem[]): UnifiedMedia[] {
@@ -46,25 +42,18 @@ function mapContinueWatching(cw: ProgressItem[]): UnifiedMedia[] {
   return items
 }
 
-// Platform-aware row component
 function Row({ title, items, onPlay, onRemove }: { title: string; items: UnifiedMedia[]; onPlay: (i: UnifiedMedia) => void; onRemove?: (i: UnifiedMedia) => void }) {
-  return isTv
-    ? <TvMediaRow title={title} items={items} onPlay={onPlay} />
-    : <MediaRow title={title} items={items} onPlay={onPlay} onRemove={onRemove} />
+  return <MediaRow title={title} items={items} onPlay={onPlay} onRemove={onRemove} />
 }
 
-// Platform-aware card component
 function Card({ item, onPlay }: { item: UnifiedMedia; onPlay: (i: UnifiedMedia) => void }) {
-  return isTv
-    ? <TvMediaCard item={item} onPlay={onPlay} />
-    : <MovieCard item={item} onPlay={onPlay} />
+  return <MovieCard item={item} onPlay={onPlay} />
 }
 
-// Platform-aware hero component
 function Hero({ items, onSelect }: { items: UnifiedMedia[]; onSelect: (i: UnifiedMedia) => void }) {
-  return isTv
-    ? <TvHero items={items} onSelect={onSelect} />
-    : <DynamicHero items={items} onSelect={onSelect} />
+  // TV mode: no hero section per design system — horizontal rows only
+  if (isTv) return null
+  return <DynamicHero items={items} onSelect={onSelect} />
 }
 
 const RESUME_PHASE_LABELS: Record<string, string> = {
@@ -104,12 +93,12 @@ export default function Home() {
   const [searchLoading, setSearchLoading] = useState(false)
 
   useEffect(() => {
-    platform.updates.check().catch(() => {})
+    window.electronAPI.updates.check().catch(() => {})
   }, [])
 
   useEffect(() => {
-    if (isOpen || !discordRPC || !platform.supportsDiscord) return
-    platform.discord.setActivity({
+    if (isOpen || !discordRPC) return
+    window.electronAPI.discord.setActivity({
       details: 'VALOR',
       state: 'Browsing for content',
       largeImageKey: 'logo',
@@ -296,6 +285,7 @@ export default function Home() {
         directPlay: useDirect,
         maxBitrate: useDirect ? undefined : QUALITY_BITRATES[defaultQuality],
         startTimeTicks: ticks > 0 ? ticks : undefined,
+        tmdbId: resumeItem.tmdbId,
       })
       job.posterUrl = resumeItem.posterUrl
       job.seriesId = resumeItem.seriesId || undefined
@@ -356,8 +346,8 @@ export default function Home() {
   if (query) {
     return (
       <div className="pb-8">
-        <div className={`px-6 pt-6 pb-4 ${isTv ? 'px-12 pt-8' : ''}`}>
-          <h1 className={`font-bold text-white ${isTv ? 'text-2xl' : 'text-xl'}`}>
+        <div className="px-6 pt-6 pb-4">
+          <h1 className="font-bold text-white text-xl">
             Results for &ldquo;{query}&rdquo;
           </h1>
         </div>
@@ -367,13 +357,13 @@ export default function Home() {
             <Loader2 size={24} className="animate-spin text-white/30" />
           </div>
         ) : searchResults.length > 0 ? (
-          <div className={isTv ? 'tv-grid-4 px-6' : 'px-6 grid grid-cols-[repeat(auto-fill,minmax(144px,1fr))] gap-4'}>
+          <div className="px-6 grid grid-cols-[repeat(auto-fill,minmax(144px,1fr))] gap-4">
             {searchResults.map((item) => (
               <Card key={`${item.id}-${item.type}`} item={item} onPlay={setSelected} />
             ))}
           </div>
         ) : (
-          <p className={`text-center text-white/30 py-16 ${isTv ? 'text-base' : 'text-sm'}`}>No results found</p>
+          <p className="text-center text-white/30 py-16 text-sm">No results found</p>
         )}
 
         <AnimatePresence>
@@ -481,24 +471,24 @@ export default function Home() {
               initial={{ scale: 0.92, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.92, opacity: 0 }}
-              className={`bg-[#181818] rounded-xl border border-white/10 shadow-2xl overflow-hidden ${isTv ? 'w-96' : 'w-72'}`}
+              className="bg-[#181818] rounded-xl border border-white/10 shadow-2xl overflow-hidden w-72"
               onClick={(e) => e.stopPropagation()}
             >
               {resumeItem.posterUrl && (
-                <div className={`relative overflow-hidden ${isTv ? 'h-32' : 'h-24'}`}>
+                <div className="relative overflow-hidden h-24">
                   <img src={resumeItem.backdropUrl || resumeItem.posterUrl} alt="" className="w-full h-full object-cover" />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#181818] to-transparent" />
                 </div>
               )}
-              <div className={isTv ? 'px-6 pb-6 pt-3' : 'px-4 pb-4 pt-2'}>
-                <p className={`font-semibold text-white truncate ${isTv ? 'text-base' : 'text-sm'}`}>{resumeItem.title}</p>
+              <div className="px-4 pb-4 pt-2">
+                <p className="font-semibold text-white truncate text-sm">{resumeItem.title}</p>
                 {resumeItem.type === 'tv' && resumeItem.seasonNumber != null && resumeItem.episodeNumber != null && (
-                  <p className={`text-white/40 mt-0.5 truncate ${isTv ? 'text-sm' : 'text-xs'}`}>
+                  <p className="text-white/40 mt-0.5 truncate text-xs">
                     S{String(resumeItem.seasonNumber).padStart(2, '0')}E{String(resumeItem.episodeNumber).padStart(2, '0')}
                     {resumeItem.episodeName ? ` · ${resumeItem.episodeName}` : ''}
                   </p>
                 )}
-                <div className={`flex flex-col gap-2 ${isTv ? 'mt-4 gap-3' : 'mt-3'}`}>
+                <div className="flex flex-col gap-2 mt-3">
                   {/* Phase status during on-demand stream resolution */}
                   {resumePhase && resumePhase !== 'error' && (
                     <div className="flex items-center gap-2 py-2 px-3 rounded-lg bg-white/5">
@@ -521,20 +511,16 @@ export default function Home() {
                             data-focusable
                             onClick={() => handleResume(resumeItem.positionTicks!)}
                             disabled={resumeLoading}
-                            className={`flex items-center justify-center gap-2 rounded-lg font-semibold transition disabled:opacity-50 ${
-                              isTv ? 'tv-btn-primary py-3 text-base' : 'py-2.5 bg-white text-black text-sm hover:bg-white/90'
-                            }`}
+                            className="flex items-center justify-center gap-2 rounded-lg font-semibold transition disabled:opacity-50 py-2.5 bg-white text-black text-sm hover:bg-white/90"
                           >
-                            {resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill={isTv ? 'white' : 'black'} />}
+                            {resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill="black" />}
                             Resume at {formatTicks(resumeItem.positionTicks!)}
                           </button>
                           <button
                             data-focusable
                             onClick={() => handleResume(0)}
                             disabled={resumeLoading}
-                            className={`flex items-center justify-center gap-2 rounded-lg transition disabled:opacity-50 ${
-                              isTv ? 'tv-btn-outline py-3 text-base' : 'py-2.5 bg-white/10 text-white text-sm hover:bg-white/15'
-                            }`}
+                            className="flex items-center justify-center gap-2 rounded-lg transition disabled:opacity-50 py-2.5 bg-white/10 text-white text-sm hover:bg-white/15"
                           >
                             <RotateCcw size={14} />
                             Start from Beginning
@@ -545,11 +531,9 @@ export default function Home() {
                           data-focusable
                           onClick={() => handleResume(0)}
                           disabled={resumeLoading}
-                          className={`flex items-center justify-center gap-2 rounded-lg font-semibold transition disabled:opacity-50 ${
-                            isTv ? 'tv-btn-primary py-3 text-base' : 'py-2.5 bg-white text-black text-sm hover:bg-white/90'
-                          }`}
+                          className="flex items-center justify-center gap-2 rounded-lg font-semibold transition disabled:opacity-50 py-2.5 bg-white text-black text-sm hover:bg-white/90"
                         >
-                          {resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill={isTv ? 'white' : 'black'} />}
+                          {resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill="black" />}
                           Begin Episode
                         </button>
                       )}
@@ -558,9 +542,7 @@ export default function Home() {
                   <button
                     data-focusable
                     onClick={() => { setSelectedResumeHint({ seasonNumber: resumeItem.seasonNumber, episodeNumber: resumeItem.episodeNumber, positionTicks: resumeItem.positionTicks }); setSelected(resumeItem); setResumeItem(null) }}
-                    className={`flex items-center justify-center gap-2 rounded-lg transition ${
-                      isTv ? 'tv-btn-outline py-3 text-base' : 'py-2.5 bg-white/5 text-white/60 text-sm hover:bg-white/10 hover:text-white/80'
-                    }`}
+                    className="flex items-center justify-center gap-2 rounded-lg transition py-2.5 bg-white/5 text-white/60 text-sm hover:bg-white/10 hover:text-white/80"
                   >
                     <Info size={14} />
                     Details
