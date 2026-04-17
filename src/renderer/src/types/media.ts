@@ -57,8 +57,12 @@ export interface PlayJob {
   itemId: string
   hlsUrl: string
   /** Set for direct play (no server transcoding). When present, mpv plays this URL
-   *  and track switching is done via native mpv aid/sid commands. */
+   *  and track switching is done via native mpv aid/sid commands.
+   *  For .strm items, this is a VALOR proxy URL (/stream-proxy/<itemId>?token=<jwt>)
+   *  that pipes bytes from Real-Debrid. Otherwise it's a direct Jellyfin URL. */
   directStreamUrl?: string
+  /** Informational: which proxy delivered the direct stream. */
+  proxiedVia?: 'valor' | 'jellyfin'
   playSessionId: string | null
   deviceId?: string
   audioTracks: AudioTrack[]

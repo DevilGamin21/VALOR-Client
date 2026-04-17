@@ -3,7 +3,6 @@ import type { PlayJob, EpisodeInfo } from '@/types/media'
 import * as api from '@/services/api'
 import { useSettings, QUALITY_BITRATES } from '@/contexts/SettingsContext'
 import { useConnect } from '@/contexts/ConnectContext'
-import { platform } from '@/platform'
 
 interface PlayerState {
   job: PlayJob | null
@@ -40,7 +39,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const cleanupMpv = useCallback((_reportStop: boolean) => {
     // Note: the overlay window handles stop-reporting, heartbeat, Discord, and mark-played.
     // PlayerContext just resets its own state when mpv exits.
-    if (platform.supportsMpv) window.electronAPI.mpv.removeAllListeners()
+    window.electronAPI.mpv.removeAllListeners()
     mpvTimeRef.current = 0
     mpvDurationRef.current = 0
     mpvJobRef.current = null
@@ -105,7 +104,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setEpisodeList(episodes)
     setCurrentEpisodeId(epId)
 
-    if (playerEngine === 'mpv' && platform.supportsMpv) {
+    if (playerEngine === 'mpv') {
       // mpv mode: launch mpv directly, don't open VideoPlayer overlay
       console.log('[PlayerContext] playerEngine=mpv, calling launchMpv')
       launchMpv(newJob, ticks, episodes, epId)
@@ -117,7 +116,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [playerEngine, launchMpv])
 
   const closePlayer = useCallback(() => {
-    if (mpvActive && platform.supportsMpv) {
+    if (mpvActive) {
       window.electronAPI.mpv.quit().catch(() => {})
       cleanupMpv(true)
       return
@@ -265,7 +264,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => { if (platform.supportsMpv) window.electronAPI.mpv.removeAllListeners() }
+    return () => { window.electronAPI.mpv.removeAllListeners() }
   }, [])
 
   return (

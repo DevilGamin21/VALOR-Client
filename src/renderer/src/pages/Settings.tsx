@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useSettings, detectDirectPlaySupport, type QualityPreset, type SubtitleSize, type PlayerEngine, type UiMode } from '@/contexts/SettingsContext'
-import { Zap, Film, Mic2, Subtitles, SkipForward, RotateCcw, Info, Cpu, CheckCircle2, XCircle, RefreshCw, AlertTriangle, MessageSquare, Monitor, Tv } from 'lucide-react'
-import { platform } from '@/platform'
-import { isTv } from '@/hooks/usePlatform'
+import { useSettings, detectDirectPlaySupport, type QualityPreset, type SubtitleSize, type PlayerEngine } from '@/contexts/SettingsContext'
+import { Zap, Film, Mic2, Subtitles, SkipForward, RotateCcw, Info, Cpu, CheckCircle2, XCircle, RefreshCw, AlertTriangle, MessageSquare, Monitor } from 'lucide-react'
 
 const QUALITY_OPTIONS: { value: QualityPreset; label: string; desc: string }[] = [
   { value: 'original', label: 'Original', desc: 'No bitrate cap — stream copy when possible' },
@@ -65,7 +63,7 @@ export default function Settings() {
     preferredAudioLang, preferredSubtitleLang,
     subtitleSize, subtitleBgOpacity,
     hasRunHardwareScan, detectedDirectPlay,
-    discordRPC, playerEngine, uiMode,
+    discordRPC, playerEngine,
     update, reset,
   } = useSettings()
 
@@ -73,9 +71,7 @@ export default function Settings() {
   const [mpvAvailable, setMpvAvailable] = useState(false)
 
   useEffect(() => {
-    if (platform.supportsMpv) {
-      window.electronAPI.mpv.isAvailable().then(setMpvAvailable).catch(() => {})
-    }
+    window.electronAPI.mpv.isAvailable().then(setMpvAvailable).catch(() => {})
   }, [])
 
   async function handleRescan() {
@@ -90,132 +86,96 @@ export default function Settings() {
 
   const userOverriddenDirectPlay = detectedDirectPlay !== null && directPlay !== detectedDirectPlay
 
-  // TV-style settings row wrapper
-  const SettingsRow = ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
-    isTv ? (
-      <div data-focusable tabIndex={0} className="tv-settings-row" onClick={onClick}>{children}</div>
-    ) : (
-      <div className="rounded-xl bg-white/5 border border-white/8 p-4">{children}</div>
-    )
-  )
-
-  const sectionTitle = isTv ? 'text-base font-semibold text-white/70 uppercase tracking-widest mb-4' : 'flex items-center gap-2 text-white/60 text-xs font-semibold uppercase tracking-widest'
-  const labelSize = isTv ? 'text-base' : 'text-sm'
-  const descSize = isTv ? 'text-sm' : 'text-xs'
+  const sectionTitle = 'flex items-center gap-2 text-white/60 text-xs font-semibold uppercase tracking-widest'
+  const labelSize = 'text-sm'
+  const descSize = 'text-xs'
 
   return (
-    <div className={isTv ? 'max-w-3xl mx-auto px-12 py-8 space-y-10' : 'max-w-2xl mx-auto px-6 py-8 space-y-10'}>
+    <div className="max-w-2xl mx-auto px-6 py-8 space-y-10">
       <div>
-        <h1 className={`font-bold text-white ${isTv ? 'text-3xl' : 'text-2xl'}`}>Settings</h1>
+        <h1 className="font-bold text-white text-2xl">Settings</h1>
         <p className={`text-white/40 mt-1 ${descSize}`}>Preferences are saved automatically.</p>
       </div>
 
       {/* ── Playback ─────────────────────────────────────────────────────────── */}
       <section className="space-y-4">
         <div className={sectionTitle}>
-          <Film size={isTv ? 16 : 13} />
-          <span className={isTv ? 'ml-2' : ''}>Playback</span>
+          <Film size={13} />
+          <span>Playback</span>
         </div>
 
         {/* Default Quality */}
-        <div className={isTv ? 'space-y-3' : `rounded-xl bg-white/5 border border-white/8 p-4 space-y-3 transition ${directPlay ? 'opacity-50' : ''}`}>
+        <div className={`rounded-xl bg-white/5 border border-white/8 p-4 space-y-3 transition ${directPlay ? 'opacity-50' : ''}`}>
           <div>
             <p className={`font-medium text-white ${labelSize}`}>Default Quality</p>
             <p className={`text-white/45 mt-0.5 ${descSize}`}>
               {directPlay ? 'Used when switching to transcoded stream mid-playback.' : 'Lower quality starts faster.'}
             </p>
           </div>
-          <div className={isTv ? 'flex flex-wrap gap-3' : 'grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3'}>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {QUALITY_OPTIONS.map((opt) => (
               <button
                 data-focusable
                 key={opt.value}
                 onClick={() => update({ defaultQuality: opt.value })}
-                className={isTv
-                  ? `tv-chip ${defaultQuality === opt.value ? 'tv-chip-selected' : ''}`
-                  : `text-left px-3 py-2.5 rounded-lg border transition ${
+                className={`text-left px-3 py-2.5 rounded-lg border transition ${
                       defaultQuality === opt.value
                         ? 'bg-red-600/20 border-red-500/50 text-white'
                         : 'bg-white/5 border-white/8 text-white/60 hover:bg-white/8 hover:text-white'
-                    }`
-                }
+                    }`}
               >
-                {isTv ? opt.label : (
-                  <>
-                    <p className="text-sm font-medium">{opt.label}</p>
-                    <p className="text-[10px] text-white/40 mt-0.5 leading-tight">{opt.desc}</p>
-                  </>
-                )}
+                <p className="text-sm font-medium">{opt.label}</p>
+                <p className="text-[10px] text-white/40 mt-0.5 leading-tight">{opt.desc}</p>
               </button>
             ))}
           </div>
         </div>
 
         {/* Autoplay next */}
-        {isTv ? (
-          <div data-focusable tabIndex={0} className="tv-settings-row" onClick={() => update({ autoplayNext: !autoplayNext })}>
-            <div>
-              <p className={`font-medium text-white ${labelSize}`}>Auto-play Next Episode</p>
-              <p className={`text-white/45 mt-0.5 ${descSize}`}>Automatically load the next episode.</p>
+        <div className="rounded-xl bg-white/5 border border-white/8 p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <SkipForward size={15} className="text-white/50 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-white">Autoplay Next Episode</p>
+                <p className="text-xs text-white/45 mt-0.5">Automatically load the next episode when one finishes.</p>
+              </div>
             </div>
             <Toggle checked={autoplayNext} onChange={() => update({ autoplayNext: !autoplayNext })} />
           </div>
-        ) : (
-          <div className="rounded-xl bg-white/5 border border-white/8 p-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
-                <SkipForward size={15} className="text-white/50 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-white">Autoplay Next Episode</p>
-                  <p className="text-xs text-white/45 mt-0.5">Automatically load the next episode when one finishes.</p>
-                </div>
-              </div>
-              <Toggle checked={autoplayNext} onChange={() => update({ autoplayNext: !autoplayNext })} />
-            </div>
-          </div>
-        )}
+        </div>
 
         {/* Direct Play */}
-        {isTv ? (
-          <div data-focusable tabIndex={0} className="tv-settings-row" onClick={() => update({ directPlay: !directPlay })}>
-            <div>
-              <p className={`font-medium text-white ${labelSize}`}>Direct Play</p>
-              <p className={`text-white/45 mt-0.5 ${descSize}`}>Stream original quality, no re-encoding.</p>
+        <div className="rounded-xl bg-white/5 border border-white/8 p-4 space-y-3">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <Zap size={15} className="text-amber-400 flex-shrink-0" />
+                <p className="text-sm font-medium text-white">Direct Play</p>
+                {userOverriddenDirectPlay && (
+                  <span className="text-[10px] bg-amber-400/15 text-amber-400/80 border border-amber-400/20 px-1.5 py-0.5 rounded-full">
+                    Manual override
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-white/45 mt-1.5 leading-relaxed">
+                Streams at original quality with no bitrate cap. Video is remuxed without
+                re-encoding for a fast start; audio is transcoded to AAC for browser
+                compatibility. Disable to use your configured quality preset instead.
+              </p>
             </div>
             <Toggle checked={directPlay} onChange={() => update({ directPlay: !directPlay })} />
           </div>
-        ) : (
-          <div className="rounded-xl bg-white/5 border border-white/8 p-4 space-y-3">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <Zap size={15} className="text-amber-400 flex-shrink-0" />
-                  <p className="text-sm font-medium text-white">Direct Play</p>
-                  {userOverriddenDirectPlay && (
-                    <span className="text-[10px] bg-amber-400/15 text-amber-400/80 border border-amber-400/20 px-1.5 py-0.5 rounded-full">
-                      Manual override
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-white/45 mt-1.5 leading-relaxed">
-                  Streams at original quality with no bitrate cap. Video is remuxed without
-                  re-encoding for a fast start; audio is transcoded to AAC for browser
-                  compatibility. Disable to use your configured quality preset instead.
-                </p>
-              </div>
-              <Toggle checked={directPlay} onChange={() => update({ directPlay: !directPlay })} />
+          {directPlay && (
+            <div className="flex items-start gap-2 text-xs text-blue-400/80 bg-blue-400/8 border border-blue-400/15 rounded-lg px-3 py-2">
+              <Info size={12} className="flex-shrink-0 mt-0.5" />
+              <p>Audio and quality switching are fully available in the player. Seek and track changes are instant.</p>
             </div>
-            {directPlay && (
-              <div className="flex items-start gap-2 text-xs text-blue-400/80 bg-blue-400/8 border border-blue-400/15 rounded-lg px-3 py-2">
-                <Info size={12} className="flex-shrink-0 mt-0.5" />
-                <p>Audio and quality switching are fully available in the player. Seek and track changes are instant.</p>
-              </div>
-            )}
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* Player Engine — desktop only */}
-        {!isTv && mpvAvailable && (
+        {/* Player Engine */}
+        {mpvAvailable && (
           <div className="rounded-xl bg-white/5 border border-white/8 p-4 space-y-3">
             <div>
               <div className="flex items-center gap-2">
@@ -249,51 +209,13 @@ export default function Settings() {
             </div>
           </div>
         )}
-        {/* UI Mode */}
-        <div className="rounded-xl bg-white/5 border border-white/8 p-4 space-y-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <Tv size={15} className="text-white/50 flex-shrink-0" />
-              <p className="text-sm font-medium text-white">UI Mode</p>
-            </div>
-            <p className="text-xs text-white/45 mt-1.5 leading-relaxed">
-              Switch between desktop and TV interfaces. TV mode uses a full-screen 10-foot UI
-              optimized for controllers and remote viewing. The app will reload to apply.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {([
-              { value: 'desktop' as UiMode, label: 'Desktop', desc: 'Sidebar layout, mouse + keyboard' },
-              { value: 'tv' as UiMode, label: 'TV Mode', desc: 'Full-screen, D-pad + controller' },
-            ]).map((opt) => (
-              <button
-                data-focusable
-                key={opt.value}
-                onClick={() => {
-                  update({ uiMode: opt.value })
-                  // Reload to apply the UI mode change cleanly
-                  setTimeout(() => window.location.reload(), 300)
-                }}
-                className={`text-left px-3 py-2.5 rounded-lg border transition ${
-                  uiMode === opt.value
-                    ? 'bg-red-600/20 border-red-500/50 text-white'
-                    : 'bg-white/5 border-white/8 text-white/60 hover:bg-white/8 hover:text-white'
-                }`}
-              >
-                <p className="text-sm font-medium">{opt.label}</p>
-                <p className="text-[10px] text-white/40 mt-0.5 leading-tight">{opt.desc}</p>
-              </button>
-            ))}
-          </div>
-        </div>
       </section>
 
-      {/* ── Integrations — desktop only ──────────────────────────────────────── */}
-      {platform.supportsDiscord && (
-        <section className="space-y-4">
-          <div className={sectionTitle}>
-            <MessageSquare size={isTv ? 16 : 13} />
-            <span className={isTv ? 'ml-2' : ''}>Integrations</span>
+      {/* ── Integrations ──────────────────────────────────────────────────────── */}
+      <section className="space-y-4">
+        <div className={sectionTitle}>
+          <MessageSquare size={13} />
+          <span>Integrations</span>
           </div>
           <div className="rounded-xl bg-white/5 border border-white/8 p-4">
             <div className="flex items-center justify-between gap-4">
@@ -308,29 +230,15 @@ export default function Settings() {
             </div>
           </div>
         </section>
-      )}
 
       {/* ── Language Preferences ─────────────────────────────────────────────── */}
       <section className="space-y-4">
         <div className={sectionTitle}>
-          <Mic2 size={isTv ? 16 : 13} />
-          <span className={isTv ? 'ml-2' : ''}>Language</span>
+          <Mic2 size={13} />
+          <span>Language</span>
         </div>
 
-        {isTv ? (
-          <>
-            <div data-focusable tabIndex={0} className="tv-settings-row">
-              <p className={`font-medium text-white ${labelSize}`}>Preferred Audio</p>
-              <span className="text-red-500 text-base">{AUDIO_LANGS.find(l => l.value === preferredAudioLang)?.label}</span>
-            </div>
-            <div data-focusable tabIndex={0} className="tv-settings-row">
-              <p className={`font-medium text-white ${labelSize}`}>Preferred Subtitles</p>
-              <span className="text-red-500 text-base">{SUBTITLE_LANGS.find(l => l.value === preferredSubtitleLang)?.label}</span>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="rounded-xl bg-white/5 border border-white/8 p-4 space-y-3">
+        <div className="rounded-xl bg-white/5 border border-white/8 p-4 space-y-3">
               <div className="flex items-center gap-2">
                 <Mic2 size={14} className="text-white/50" />
                 <p className="text-sm font-medium text-white">Preferred Audio</p>
@@ -362,20 +270,18 @@ export default function Settings() {
                 ))}
               </select>
             </div>
-          </>
-        )}
       </section>
 
       {/* ── Subtitle Styling ─────────────────────────────────────────────────── */}
       <section className="space-y-4">
         <div className={sectionTitle}>
-          <Subtitles size={isTv ? 16 : 13} />
-          <span className={isTv ? 'ml-2' : ''}>Subtitle Styling</span>
+          <Subtitles size={13} />
+          <span>Subtitle Styling</span>
         </div>
 
-        <div className={isTv ? 'space-y-3' : 'rounded-xl bg-white/5 border border-white/8 p-4 space-y-3'}>
+        <div className="rounded-xl bg-white/5 border border-white/8 p-4 space-y-3">
           <p className={`font-medium text-white ${labelSize}`}>Text Size</p>
-          <div className={isTv ? 'flex gap-3' : 'grid grid-cols-4 gap-2'}>
+          <div className="grid grid-cols-4 gap-2">
             {([
               { value: 'small', label: 'Small' },
               { value: 'medium', label: 'Medium' },
@@ -386,14 +292,11 @@ export default function Settings() {
                 data-focusable
                 key={opt.value}
                 onClick={() => update({ subtitleSize: opt.value })}
-                className={isTv
-                  ? `tv-chip ${subtitleSize === opt.value ? 'tv-chip-selected' : ''}`
-                  : `py-2 rounded-lg border text-sm text-center transition ${
+                className={`py-2 rounded-lg border text-sm text-center transition ${
                       subtitleSize === opt.value
                         ? 'bg-red-600/20 border-red-500/50 text-white'
                         : 'bg-white/5 border-white/8 text-white/60 hover:bg-white/8 hover:text-white'
-                    }`
-                }
+                    }`}
               >
                 {opt.label}
               </button>
@@ -402,9 +305,8 @@ export default function Settings() {
         </div>
       </section>
 
-      {/* ── Hardware — desktop only ──────────────────────────────────────────── */}
-      {!isTv && (
-        <section className="space-y-4">
+      {/* ── Hardware ──────────────────────────────────────────────────────────── */}
+      <section className="space-y-4">
           <div className={sectionTitle}>
             <Cpu size={13} />
             <span>Hardware</span>
@@ -448,18 +350,14 @@ export default function Settings() {
               Re-detect hardware
             </button>
           </div>
-        </section>
-      )}
+      </section>
 
       {/* ── Reset ───────────────────────────────────────────────────────────── */}
       <section>
         <button
           data-focusable
           onClick={reset}
-          className={isTv
-            ? 'tv-btn-outline flex items-center gap-2'
-            : 'flex items-center gap-2 px-4 py-2 rounded-lg bg-white/8 hover:bg-white/12 text-white/50 hover:text-white text-sm transition'
-          }
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/8 hover:bg-white/12 text-white/50 hover:text-white text-sm transition"
         >
           <RotateCcw size={14} />
           Reset to defaults
@@ -467,7 +365,7 @@ export default function Settings() {
       </section>
 
       {/* ── Version ──────────────────────────────────────────────────────────── */}
-      <div className={`text-center text-white/20 pb-4 ${isTv ? 'text-sm' : 'text-xs'}`}>
+      <div className="text-center text-white/20 pb-4 text-xs">
         VALOR v{__APP_VERSION__}
       </div>
     </div>

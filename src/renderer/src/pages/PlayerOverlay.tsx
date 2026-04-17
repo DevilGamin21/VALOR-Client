@@ -632,6 +632,7 @@ export default function PlayerOverlay() {
         startTimeTicks: timeRef.current > 0 ? Math.floor(timeRef.current * 10_000_000) : undefined,
         previousPlaySessionId: job!.playSessionId || undefined,
         previousDeviceId: job!.deviceId,
+        tmdbId: job!.tmdbId,
       })
       await window.electronAPI.mpv.loadFile(newJob.hlsUrl)
       setCurrentJob({ ...currentJob!, job: newJob })
@@ -664,6 +665,7 @@ export default function PlayerOverlay() {
         startTimeTicks: timeRef.current > 0 ? Math.floor(timeRef.current * 10_000_000) : undefined,
         previousPlaySessionId: job.playSessionId || undefined,
         previousDeviceId: job.deviceId,
+        tmdbId: job.tmdbId,
       })
       await window.electronAPI.mpv.loadFile(newJob.hlsUrl)
       setCurrentJob({ ...currentJob!, job: newJob })
@@ -682,6 +684,7 @@ export default function PlayerOverlay() {
         itemId: job.itemId,
         maxBitrate: 10_000_000,
         startTimeTicks: timeRef.current > 0 ? Math.floor(timeRef.current * 10_000_000) : undefined,
+        tmdbId: job.tmdbId,
       })
       await window.electronAPI.mpv.loadFile(newJob.hlsUrl)
       setCurrentJob({ ...currentJob!, job: newJob })
@@ -718,6 +721,7 @@ export default function PlayerOverlay() {
         directPlay: directPlaySetting,
         previousPlaySessionId: job?.playSessionId || undefined,
         previousDeviceId: job?.deviceId,
+        tmdbId: job?.tmdbId,
       })
       await window.electronAPI.mpv.loadFile(newJob.directStreamUrl ?? newJob.hlsUrl)
       setCurrentJob({

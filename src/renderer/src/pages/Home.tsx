@@ -5,9 +5,8 @@ import { Loader2, Play, RotateCcw, Info } from 'lucide-react'
 import * as api from '@/services/api'
 import MediaRow from '@/components/MediaRow'
 import MovieCard from '@/components/MovieCard'
-import PlayModal from '@/components/tv/TvPlayModalWrapper'
+import PlayModal from '@/components/PlayModal'
 import DynamicHero from '@/components/DynamicHero'
-import { isTv } from '@/hooks/usePlatform'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useSettings, QUALITY_BITRATES } from '@/contexts/SettingsContext'
 import type { UnifiedMedia, TrendingResponse, ProgressItem, PlayJob } from '@/types/media'
@@ -51,8 +50,6 @@ function Card({ item, onPlay }: { item: UnifiedMedia; onPlay: (i: UnifiedMedia) 
 }
 
 function Hero({ items, onSelect }: { items: UnifiedMedia[]; onSelect: (i: UnifiedMedia) => void }) {
-  // TV mode: no hero section per design system — horizontal rows only
-  if (isTv) return null
   return <DynamicHero items={items} onSelect={onSelect} />
 }
 

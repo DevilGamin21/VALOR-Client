@@ -4,7 +4,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Loader2, AlertCircle, ArrowLeft } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import TitleBar from '@/components/TitleBar'
-import { isTv, isElectron } from '@/hooks/usePlatform'
 
 type Stage = 'idle' | 'submitting' | 'dot' | 'confirmed' | 'success' | 'failure' | 'reverting'
 
@@ -86,15 +85,12 @@ export default function Login() {
   const showDot = stage === 'dot' || stage === 'confirmed' || stage === 'success' || stage === 'failure'
   const isGreen = stage === 'confirmed' || stage === 'success'
 
-  // TV-specific input styles
-  const inputClass = isTv
-    ? 'tv-input'
-    : 'w-full rounded-xl bg-black/50 border border-white/[0.08] px-4 py-3 text-sm text-white placeholder-white/15 focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/20 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed'
+  const inputClass = 'w-full rounded-xl bg-black/50 border border-white/[0.08] px-4 py-3 text-sm text-white placeholder-white/15 focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/20 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed'
 
   return (
     <div className="flex flex-col h-screen bg-[#06060a] overflow-hidden">
-      {/* Title bar — desktop only */}
-      {isElectron && <TitleBar />}
+      {/* Title bar */}
+      <TitleBar />
 
       <div className="flex-1 relative flex items-center justify-center">
         {/* Background glow blobs */}
@@ -138,7 +134,7 @@ export default function Login() {
           {showCard && (
             <motion.div
               key="card"
-              className={`relative z-10 w-full px-4 ${isTv ? 'max-w-[480px]' : 'max-w-[22rem]'}`}
+              className="relative z-10 w-full px-4 max-w-[22rem]"
               variants={container}
               initial="hidden"
               animate={
@@ -152,11 +148,11 @@ export default function Login() {
               transition={{ duration: 0.35 }}
             >
               {/* Brand mark */}
-              <motion.div className={`text-center ${isTv ? 'mb-12' : 'mb-9'}`} variants={item}>
-                <h1 className={`font-black tracking-[0.42em] text-white leading-none ${isTv ? 'text-[56px] tracking-[12px]' : 'text-[2.6rem]'}`}>
+              <motion.div className="text-center mb-9" variants={item}>
+                <h1 className="font-black tracking-[0.42em] text-white leading-none text-[2.6rem]">
                   VALOR
                 </h1>
-                <p className={`mt-3 tracking-[0.3em] text-red-400/50 uppercase ${isTv ? 'text-sm' : 'text-[10px]'}`}>
+                <p className="mt-3 tracking-[0.3em] text-red-400/50 uppercase text-[10px]">
                   {isAddAccount ? 'Add Account' : 'Sign In'}
                 </p>
               </motion.div>
@@ -165,23 +161,15 @@ export default function Login() {
               <motion.div
                 variants={item}
                 layout
-                className={isTv
-                  ? 'rounded-2xl bg-[#141414] border border-[#2a2a2a] px-10 py-10'
-                  : 'p-px rounded-2xl bg-gradient-to-b from-white/10 via-white/[0.04] to-white/[0.02]'
-                }
+                className="p-px rounded-2xl bg-gradient-to-b from-white/10 via-white/[0.04] to-white/[0.02]"
               >
-                <div className={isTv
-                  ? ''
-                  : 'relative rounded-2xl bg-[#0c0c11]/95 backdrop-blur-3xl px-7 py-8 shadow-[0_20px_80px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.04)]'
-                }>
-                  {/* Scan-line shimmer — desktop only */}
-                  {!isTv && (
-                    <motion.div
-                      className="absolute top-0 left-8 right-8 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent rounded-full"
-                      animate={{ opacity: [0.4, 1, 0.4] }}
-                      transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-                    />
-                  )}
+                <div className="relative rounded-2xl bg-[#0c0c11]/95 backdrop-blur-3xl px-7 py-8 shadow-[0_20px_80px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.04)]">
+                  {/* Scan-line shimmer */}
+                  <motion.div
+                    className="absolute top-0 left-8 right-8 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent rounded-full"
+                    animate={{ opacity: [0.4, 1, 0.4] }}
+                    transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+                  />
 
                   {/* Error */}
                   <AnimatePresence>
@@ -192,18 +180,18 @@ export default function Login() {
                         exit={{ opacity: 0, height: 0 }}
                         className="mb-5 overflow-hidden"
                       >
-                        <div className={`flex items-center gap-2.5 rounded-xl bg-red-500/8 border border-red-500/20 px-3.5 py-2.5 ${isTv ? 'text-sm' : ''}`}>
-                          <AlertCircle className={`text-red-400 shrink-0 ${isTv ? 'w-5 h-5' : 'w-3.5 h-3.5'}`} />
-                          <p className={`text-red-300 leading-snug ${isTv ? 'text-sm' : 'text-xs'}`}>{error}</p>
+                        <div className="flex items-center gap-2.5 rounded-xl bg-red-500/8 border border-red-500/20 px-3.5 py-2.5">
+                          <AlertCircle className="text-red-400 shrink-0 w-3.5 h-3.5" />
+                          <p className="text-red-300 leading-snug text-xs">{error}</p>
                         </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
 
                   {/* Form */}
-                  <form onSubmit={handleSubmit} className={`flex flex-col ${isTv ? 'gap-6' : 'gap-5'}`}>
+                  <form onSubmit={handleSubmit} className="flex flex-col gap-5">
                     <div>
-                      <label className={`block uppercase tracking-[0.22em] text-white/35 font-semibold select-none ${isTv ? 'text-xs mb-3' : 'text-[9px] mb-2'}`}>
+                      <label className={`block uppercase tracking-[0.22em] text-white/35 font-semibold select-none ${'text-[9px] mb-2'}`}>
                         Username
                       </label>
                       <input
@@ -216,7 +204,7 @@ export default function Login() {
                       />
                     </div>
                     <div>
-                      <label className={`block uppercase tracking-[0.22em] text-white/35 font-semibold select-none ${isTv ? 'text-xs mb-3' : 'text-[9px] mb-2'}`}>
+                      <label className={`block uppercase tracking-[0.22em] text-white/35 font-semibold select-none ${'text-[9px] mb-2'}`}>
                         Password
                       </label>
                       <input
@@ -233,20 +221,15 @@ export default function Login() {
                       data-focusable
                       type="submit"
                       disabled={isAnimating}
-                      className={isTv
-                        ? `tv-btn-primary w-full py-4 text-base mt-2 ${isAnimating ? 'opacity-50 cursor-wait' : ''}`
-                        : `group relative w-full overflow-hidden rounded-xl py-3.5 text-[11px] font-bold tracking-[0.25em] uppercase transition-all duration-300 mt-1 ${
+                      className={`group relative w-full overflow-hidden rounded-xl py-3.5 text-[11px] font-bold tracking-[0.25em] uppercase transition-all duration-300 mt-1 ${
                             isAnimating
                               ? 'bg-red-900/30 text-red-400/40 cursor-wait'
                               : 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-[0_4px_30px_rgba(220,38,38,0.35)] hover:shadow-[0_4px_40px_rgba(220,38,38,0.5)] hover:from-red-500 hover:to-red-600'
-                          }`
-                      }
+                          }`}
                     >
-                      {!isTv && (
-                        <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/15 to-transparent transition-transform duration-500 ease-in-out group-hover:translate-x-[200%]" />
-                      )}
+                      <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/15 to-transparent transition-transform duration-500 ease-in-out group-hover:translate-x-[200%]" />
                       <span className="relative flex items-center justify-center gap-2">
-                        {isAnimating && <Loader2 className={`animate-spin ${isTv ? 'w-5 h-5' : 'w-3.5 h-3.5'}`} />}
+                        {isAnimating && <Loader2 className="animate-spin w-3.5 h-3.5" />}
                         {isAnimating ? 'Signing in...' : 'Sign In'}
                       </span>
                     </button>
@@ -256,12 +239,9 @@ export default function Login() {
                         data-focusable
                         type="button"
                         onClick={() => navigate('/home', { replace: true })}
-                        className={isTv
-                          ? 'tv-btn-outline w-full py-3 flex items-center justify-center gap-2'
-                          : 'w-full flex items-center justify-center gap-2 py-2.5 text-[10px] uppercase tracking-[0.2em] text-white/40 hover:text-white/70 transition'
-                        }
+                        className="w-full flex items-center justify-center gap-2 py-2.5 text-[10px] uppercase tracking-[0.2em] text-white/40 hover:text-white/70 transition"
                       >
-                        <ArrowLeft size={isTv ? 16 : 12} />
+                        <ArrowLeft size={12} />
                         Cancel
                       </button>
                     )}

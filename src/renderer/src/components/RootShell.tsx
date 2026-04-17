@@ -24,7 +24,6 @@ import { useConnect } from '@/contexts/ConnectContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useSettings } from '@/contexts/SettingsContext'
-import { platform } from '@/platform'
 
 const NAV = [
   { to: '/home',      label: 'Home',      icon: Home     },
@@ -62,12 +61,12 @@ export default function RootShell() {
 
   // Listen for update-downloaded so the sidebar icon can trigger install directly
   useEffect(() => {
-    platform.updates.onDownloaded(() => setUpdateReady(true))
+    window.electronAPI.updates.onDownloaded(() => setUpdateReady(true))
   }, [])
 
   // Clear Discord activity when the user disables RPC
   useEffect(() => {
-    if (!discordRPC && platform.supportsDiscord) platform.discord.clearActivity().catch(() => {})
+    if (!discordRPC) window.electronAPI.discord.clearActivity().catch(() => {})
   }, [discordRPC])
 
   function handleSearch(e: React.FormEvent) {
@@ -82,7 +81,7 @@ export default function RootShell() {
     await logout()
     // AuthContext.logout switches to next account if available;
     // only navigate to login if no user remains
-    const remaining = await platform.auth.getAccounts()
+    const remaining = await window.electronAPI.auth.getAccounts()
     if (remaining.length === 0) navigate('/login')
   }
 
@@ -239,7 +238,7 @@ export default function RootShell() {
             {updateReady && (
               <button
                 data-focusable
-                onClick={() => platform.updates.install()}
+                onClick={() => window.electronAPI.updates.install()}
                 title="Update ready — click to restart and update"
                 className={`${iconBase} text-green-400 hover:text-green-300 hover:bg-green-500/15 animate-pulse`}
               >

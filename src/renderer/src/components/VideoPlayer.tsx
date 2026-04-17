@@ -302,6 +302,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         startTimeTicks: startPositionTicks > 0 ? startPositionTicks : undefined,
         previousPlaySessionId: job.playSessionId || undefined,
         previousDeviceId: job.deviceId,
+        tmdbId: job.tmdbId,
       }).then((newJob) => {
         updateJob(newJob)
         loadSrc(newJob.hlsUrl)
@@ -784,6 +785,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         startTimeTicks: savedTime > 0 ? Math.floor(savedTime * 10_000_000) : undefined,
         previousPlaySessionId: job.playSessionId || undefined,
         previousDeviceId: job.deviceId,
+        tmdbId: job.tmdbId,
       })
       updateJob(newJob)
       loadSrc(newJob.hlsUrl, savedTime)
@@ -813,6 +815,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
           startTimeTicks: savedTime > 0 ? Math.floor(savedTime * 10_000_000) : undefined,
           previousPlaySessionId: job.playSessionId || undefined,
           previousDeviceId: job.deviceId,
+          tmdbId: job.tmdbId,
         })
         updateJob(newJob)
         loadSrc(newJob.hlsUrl, savedTime)
@@ -846,6 +849,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         startTimeTicks: savedTime > 0 ? Math.floor(savedTime * 10_000_000) : undefined,
         previousPlaySessionId: job.playSessionId || undefined,
         previousDeviceId: job.deviceId,
+        tmdbId: job.tmdbId,
       })
       updateJob(newJob)
       loadSrc(newJob.hlsUrl, savedTime)
@@ -870,6 +874,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         itemId: job.itemId,
         maxBitrate: QUALITY_BITRATES[defaultQuality],
         startTimeTicks: savedTime > 0 ? Math.floor(savedTime * 10_000_000) : undefined,
+        tmdbId: job.tmdbId,
       })
       updateJob(newJob)
       loadSrc(newJob.hlsUrl, savedTime)
@@ -926,6 +931,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         maxBitrate: QUALITY_BITRATES[defaultQuality],
         previousPlaySessionId: job.playSessionId || undefined,
         previousDeviceId: job.deviceId,
+        tmdbId: job.tmdbId,
       })
       updateJob(newJob)
 

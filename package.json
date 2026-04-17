@@ -15,10 +15,7 @@
     "build:linux:nobump": "node scripts/build.mjs none --platform linux",
     "release:linux": "node scripts/build.mjs patch --platform linux --release",
     "package:win": "npm run build && electron-builder --win --publish never",
-    "package:linux": "npm run build && electron-builder --linux --publish never",
-    "dev:tizen": "vite --config vite.tizen.config.ts",
-    "build:tizen": "vite build --config vite.tizen.config.ts",
-    "package:tizen": "vite build --config vite.tizen.config.ts && node scripts/package-tizen.mjs"
+    "package:linux": "npm run build && electron-builder --linux --publish never"
   },
   "devDependencies": {
     "@types/discord-rpc": "^4.0.10",

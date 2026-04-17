@@ -7,8 +7,6 @@ import { SettingsProvider } from '@/contexts/SettingsContext'
 import { ConnectProvider } from '@/contexts/ConnectContext'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import RootShell from '@/components/RootShell'
-import TvRootShell from '@/components/tv/TvRootShell'
-import { useSettings } from '@/contexts/SettingsContext'
 import Login from '@/pages/Login'
 import Home from '@/pages/Home'
 import Movies from '@/pages/Movies'
@@ -22,11 +20,9 @@ import Connect from '@/pages/Connect'
 import PlayerOverlay from '@/pages/PlayerOverlay'
 
 function AppShell() {
-  const { uiMode } = useSettings()
-  const Shell = uiMode === 'tv' ? TvRootShell : RootShell
   return (
     <ProtectedRoute>
-      <Shell />
+      <RootShell />
     </ProtectedRoute>
   )
 }

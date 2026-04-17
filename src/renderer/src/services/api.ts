@@ -40,11 +40,9 @@ function normalizeUser(raw: Record<string, unknown>): User {
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
-import { platform } from '@/platform'
-
 async function getToken(): Promise<string | null> {
   try {
-    return await platform.auth.getToken()
+    return await window.electronAPI.auth.getToken()
   } catch {
     return null
   }
@@ -147,6 +145,9 @@ export interface PlayJobRequest {
    *  backend can explicitly kill the old FFmpeg before starting a new transcode. */
   previousPlaySessionId?: string
   previousDeviceId?: string
+  /** Client-known TMDB ID — overrides Jellyfin's ProviderIds.Tmdb which can be wrong
+   *  after auto-identify. Used for subtitle search + progress reporting. */
+  tmdbId?: number
 }
 
 export async function startPlayJob(body: PlayJobRequest): Promise<PlayJob> {
