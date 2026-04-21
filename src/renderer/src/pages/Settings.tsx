@@ -175,40 +175,41 @@ export default function Settings() {
         </div>
 
         {/* Player Engine */}
-        {mpvAvailable && (
-          <div className="rounded-xl bg-white/5 border border-white/8 p-4 space-y-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <Monitor size={15} className="text-white/50 flex-shrink-0" />
-                <p className="text-sm font-medium text-white">Player Engine</p>
-              </div>
-              <p className="text-xs text-white/45 mt-1.5 leading-relaxed">
-                Choose the video player backend. mpv offers better codec support (HEVC, AV1),
-                hardware-accelerated decoding, and lower CPU usage for high-bitrate content.
-              </p>
+        <div className="rounded-xl bg-white/5 border border-white/8 p-4 space-y-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Monitor size={15} className="text-white/50 flex-shrink-0" />
+              <p className="text-sm font-medium text-white">Player Engine</p>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              {([
-                { value: 'builtin' as PlayerEngine, label: 'Built-in', desc: 'HTML5 video + HLS.js' },
-                { value: 'mpv' as PlayerEngine, label: 'mpv', desc: 'External player — wider codec support' },
-              ]).map((opt) => (
-                <button
-                  data-focusable
-                  key={opt.value}
-                  onClick={() => update({ playerEngine: opt.value })}
-                  className={`text-left px-3 py-2.5 rounded-lg border transition ${
-                    playerEngine === opt.value
-                      ? 'bg-red-600/20 border-red-500/50 text-white'
-                      : 'bg-white/5 border-white/8 text-white/60 hover:bg-white/8 hover:text-white'
-                  }`}
-                >
-                  <p className="text-sm font-medium">{opt.label}</p>
-                  <p className="text-[10px] text-white/40 mt-0.5 leading-tight">{opt.desc}</p>
-                </button>
-              ))}
-            </div>
+            <p className="text-xs text-white/45 mt-1.5 leading-relaxed">
+              Choose the video player backend. mpv offers better codec support (HEVC, AV1),
+              hardware-accelerated decoding, and lower CPU usage for high-bitrate content.
+            </p>
           </div>
-        )}
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { value: 'builtin' as PlayerEngine, label: 'Built-in', desc: 'HTML5 video + HLS.js', available: true },
+              { value: 'mpv' as PlayerEngine, label: 'mpv', desc: mpvAvailable ? 'External player — wider codec support' : 'Not installed in this build', available: mpvAvailable },
+            ]).map((opt) => (
+              <button
+                data-focusable
+                key={opt.value}
+                disabled={!opt.available}
+                onClick={() => opt.available && update({ playerEngine: opt.value })}
+                className={`text-left px-3 py-2.5 rounded-lg border transition ${
+                  !opt.available
+                    ? 'bg-white/2 border-white/5 text-white/30 cursor-not-allowed'
+                    : playerEngine === opt.value
+                    ? 'bg-red-600/20 border-red-500/50 text-white'
+                    : 'bg-white/5 border-white/8 text-white/60 hover:bg-white/8 hover:text-white'
+                }`}
+              >
+                <p className="text-sm font-medium">{opt.label}</p>
+                <p className="text-[10px] text-white/40 mt-0.5 leading-tight">{opt.desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* ── Integrations ──────────────────────────────────────────────────────── */}

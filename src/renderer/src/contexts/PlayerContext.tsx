@@ -12,7 +12,8 @@ interface PlayerState {
   mpvActive: boolean
   episodeList: EpisodeInfo[]
   currentEpisodeId: string
-  openPlayer: (job: PlayJob, startPositionTicks?: number, episodes?: EpisodeInfo[], currentEpisodeId?: string) => void
+  openPlayer: (job: PlayJob, startPositionTicks?: number, episodes?: EpisodeInfo[], currentEpisodeId?: string) => Promise<void>
+
   closePlayer: () => void
   updateJob: (job: PlayJob) => void
   setEpisodeList: (eps: EpisodeInfo[]) => void
@@ -98,19 +99,29 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [cleanupMpv])
 
   // ── openPlayer ──────────────────────────────────────────────────────────
-  const openPlayer = useCallback((newJob: PlayJob, ticks = 0, episodes: EpisodeInfo[] = [], epId = '') => {
+  const openPlayer = useCallback(async (newJob: PlayJob, ticks = 0, episodes: EpisodeInfo[] = [], epId = '') => {
     setJob(newJob)
     setStartPositionTicks(ticks)
     setEpisodeList(episodes)
     setCurrentEpisodeId(epId)
 
-    if (playerEngine === 'mpv') {
-      // mpv mode: launch mpv directly, don't open VideoPlayer overlay
+    // If mpv is selected, verify it's actually installed before launching.
+    // Fall back to built-in when missing so the user still gets playback
+    // instead of a silent "nothing happens" failure.
+    let useEngine: 'mpv' | 'builtin' = playerEngine
+    if (useEngine === 'mpv') {
+      const mpvOk = await window.electronAPI.mpv.isAvailable().catch(() => false)
+      if (!mpvOk) {
+        console.warn('[PlayerContext] playerEngine=mpv but mpv.exe not found — falling back to built-in')
+        useEngine = 'builtin'
+      }
+    }
+
+    if (useEngine === 'mpv') {
       console.log('[PlayerContext] playerEngine=mpv, calling launchMpv')
       launchMpv(newJob, ticks, episodes, epId)
     } else {
       console.log('[PlayerContext] playerEngine=builtin, opening VideoPlayer')
-      // Built-in mode: open VideoPlayer overlay as before
       setIsOpen(true)
     }
   }, [playerEngine, launchMpv])

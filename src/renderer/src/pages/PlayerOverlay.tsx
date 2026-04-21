@@ -244,7 +244,12 @@ export default function PlayerOverlay() {
     return episodeList[idx + 1]
   })()
 
-  const progress = duration > 0 ? time / duration : 0
+  // Use Jellyfin's known duration when available — mpv's `duration` property
+  // grows as HLS segments load, so the progress bar would start at a tiny value
+  // and the seek bar only maps to what's been buffered so far.
+  const knownDuration = (job?.durationTicks ?? 0) / 10_000_000
+  const effectiveDuration = knownDuration > 0 ? knownDuration : duration
+  const progress = effectiveDuration > 0 ? time / effectiveDuration : 0
 
   // ── Subscribe to IPC events ──────────────────────────────────────────────
   useEffect(() => {
@@ -317,14 +322,14 @@ export default function PlayerOverlay() {
   // ── Up Next trigger — 2 min before end ──────────────────────────────────
   useEffect(() => {
     if (!nextEpisode || !autoplayNext || upNextDismissedRef.current) return
-    if (duration <= 0) return
-    const remaining = duration - time
+    if (effectiveDuration <= 0) return
+    const remaining = effectiveDuration - time
     if (remaining <= 120 && remaining > 0) {
       if (!upNextVisible) setUpNextVisible(true)
     } else if (upNextVisible) {
       setUpNextVisible(false)
     }
-  }, [time, duration, nextEpisode, autoplayNext, upNextVisible])
+  }, [time, effectiveDuration, nextEpisode, autoplayNext, upNextVisible])
 
   // ── Auto-fetch episode list from TMDB ────────────────────────────────────
   useEffect(() => {
@@ -690,6 +695,38 @@ export default function PlayerOverlay() {
       setCurrentJob({ ...currentJob!, job: newJob })
     } catch {
       setError('Failed to switch to transcoded stream')
+      setBuffering(false)
+    }
+  }
+
+  // Seek to an absolute time. For direct play we can seek the existing mpv
+  // process. For HLS transcoded streams, seeking past what Jellyfin has
+  // already transcoded stalls/kills mpv — so we restart the transcode at
+  // the new start position, matching what switchQuality/switchAudio do.
+  async function seekToAbsolute(secs: number) {
+    if (!job) return
+    const target = Math.max(0, secs)
+    if (isDirectPlay) {
+      window.electronAPI.mpv.seekAbsolute(target).catch(() => {})
+      return
+    }
+    setBuffering(true)
+    try {
+      const newJob = await api.startPlayJob({
+        itemId: job.itemId,
+        audioStreamIndex: activeAudio,
+        maxBitrate: QUALITY_PRESETS[activeQuality].maxBitrate || undefined,
+        startTimeTicks: Math.floor(target * 10_000_000),
+        previousPlaySessionId: job.playSessionId || undefined,
+        previousDeviceId: job.deviceId,
+        tmdbId: job.tmdbId,
+      })
+      setTime(target)
+      timeRef.current = target
+      await window.electronAPI.mpv.loadFile(newJob.hlsUrl)
+      setCurrentJob({ ...currentJob!, job: newJob })
+    } catch {
+      setError('Seek failed')
       setBuffering(false)
     }
   }
@@ -1152,7 +1189,7 @@ export default function PlayerOverlay() {
               Play Now
             </button>
             <span className="text-white/30 text-xs tabular-nums">
-              {Math.max(0, Math.ceil(duration - time))}s
+              {Math.max(0, Math.ceil(effectiveDuration - time))}s
             </span>
           </div>
         </motion.div>
@@ -1238,7 +1275,7 @@ export default function PlayerOverlay() {
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect()
             const frac = (e.clientX - rect.left) / rect.width
-            window.electronAPI.mpv.seekAbsolute(frac * duration)
+            seekToAbsolute(frac * effectiveDuration)
           }}
         >
           <div
@@ -1312,7 +1349,7 @@ export default function PlayerOverlay() {
 
           {/* Time */}
           <span className="text-white/60 text-xs tabular-nums ml-1">
-            {fmt(time)} / {fmt(duration)}
+            {fmt(time)} / {fmt(effectiveDuration)}
           </span>
 
           <div className="flex-1" />

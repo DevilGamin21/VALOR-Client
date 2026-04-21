@@ -738,8 +738,13 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
 
   function seekTo(frac: number) {
     const v = videoRef.current
-    if (!v || !v.duration) return
-    v.currentTime = frac * v.duration
+    if (!v) return
+    // Prefer the Jellyfin-known duration over video.duration, which can be
+    // Infinity or a growing buffered-length value for transcoded HLS.
+    const known = (job.durationTicks ?? 0) / 10_000_000
+    const dur = known > 0 ? known : (isFinite(v.duration) ? v.duration : 0)
+    if (dur <= 0) return
+    v.currentTime = frac * dur
   }
 
   function changeVolume(val: number) {
@@ -1110,7 +1115,14 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     return `${m}:${String(s).padStart(2, '0')}`
   }
 
-  const progress = duration > 0 ? currentTime / duration : 0
+  // For Jellyfin transcoded HLS, `video.duration` can be Infinity or a value
+  // that grows as the manifest loads. Prefer the Jellyfin-known duration so
+  // the seek bar and time readout reflect the full episode length.
+  const knownDuration = (job.durationTicks ?? 0) / 10_000_000
+  const effectiveDuration = isFinite(duration) && duration > 0 && knownDuration === 0
+    ? duration
+    : knownDuration > 0 ? knownDuration : 0
+  const progress = effectiveDuration > 0 ? currentTime / effectiveDuration : 0
 
   // ─── Gamepad / controller support (TV-remote style) ────────────────────────
   // Any DPad input shows HUD. Two focus rows: seek bar + controls bar.
@@ -1703,7 +1715,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
 
           {/* Time */}
           <span className="text-white/60 text-xs tabular-nums ml-1">
-            {fmt(currentTime)} / {fmt(duration)}
+            {fmt(currentTime)} / {fmt(effectiveDuration)}
           </span>
 
           <div className="flex-1" />

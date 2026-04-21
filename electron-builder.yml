@@ -32,8 +32,8 @@ win:
     - from: resources/mpv
       to: mpv
       filter:
-        - "*.exe"
-        - "*.dll"
+        - "**/*.exe"
+        - "**/*.dll"
   target:
     - target: nsis
       arch: [x64]
