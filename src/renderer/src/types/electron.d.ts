@@ -37,8 +37,6 @@ export interface MpvLaunchPayload {
   job: PlayJob
 }
 
-declare const __APP_VERSION__: string
-
 export interface AccountEntry {
   id: string
   username: string
@@ -47,6 +45,9 @@ export interface AccountEntry {
 }
 
 declare global {
+  /** Injected by Vite from package.json — see electron.vite.config.ts */
+  const __APP_VERSION__: string
+
   interface Window {
     electronAPI: {
       overlay: {

@@ -87,12 +87,17 @@ export interface PlayJob {
   episodeNumber?: number | null
   /** Episode name/title (TV only). */
   episodeName?: string | null
-  /** IntroSkipper: intro segment start (seconds) */
+  /** IntroSkipper: intro segment start (seconds). May be backfilled from /playback-context. */
   introStartSec?: number | null
-  /** IntroSkipper: intro segment end (seconds) */
+  /** IntroSkipper: intro segment end (seconds). May be backfilled from /playback-context. */
   introEndSec?: number | null
-  /** IntroSkipper: credits start (seconds) */
+  /** IntroSkipper: credits start (seconds). May be backfilled from /playback-context. */
   creditsStartSec?: number | null
+  /** Whether this item is from an anime library — drives Aniskip lookup
+   *  in /playback-context. Propagated from UnifiedMedia.isAnime at play-time. */
+  isAnime?: boolean
+  /** Per-item mpv CLI overrides from the on-demand pipeline (e.g. cache-secs). */
+  mpvOptions?: Record<string, string>
 }
 
 export interface Season {
@@ -100,6 +105,10 @@ export interface Season {
   name: string
   seasonNumber: number
   episodeCount: number
+  /** TMDB-canonical season number — used when starting a stream so the backend
+   *  resolves the right source (some shows have absolute-vs-DVD-vs-canonical
+   *  numbering offsets). Falls back to seasonNumber when absent. */
+  canonicalSeasonNumber?: number
 }
 
 export interface Episode {
@@ -113,6 +122,10 @@ export interface Episode {
   onDemand: boolean
   jellyfinId?: string
   playedPercentage?: number
+  /** TMDB-canonical season number for this episode. */
+  canonicalSeasonNumber?: number
+  /** TMDB-canonical episode number for this episode. */
+  canonicalEpisodeNumber?: number
 }
 
 export interface User {
@@ -157,6 +170,10 @@ export interface EpisodeInfo {
   title: string
   episodeNumber: number
   seasonNumber: number
+  /** TMDB-canonical numbers — passed through to startStream when switching
+   *  to this episode via the on-demand path. */
+  canonicalSeasonNumber?: number
+  canonicalEpisodeNumber?: number
   playedPercentage?: number
 }
 

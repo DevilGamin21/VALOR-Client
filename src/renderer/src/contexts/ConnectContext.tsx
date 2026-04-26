@@ -37,6 +37,10 @@ export interface PlayItemPayload {
   year?: number
   season?: number
   episode?: number
+  /** TMDB-canonical season/episode — forwarded to startStream by the receiving
+   *  device so the on-demand pipeline resolves the right source. */
+  canonicalSeason?: number
+  canonicalEpisode?: number
   startPositionTicks?: number
   isAnime?: boolean
 }

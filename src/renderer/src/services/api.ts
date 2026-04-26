@@ -6,6 +6,8 @@ import type {
   User,
   ProgressItem,
   TrendingResponse,
+  AudioTrack,
+  SubtitleTrack,
 } from '@/types/media'
 
 export const API_BASE = 'https://apiv.dawn-star.co.uk'
@@ -162,7 +164,7 @@ export async function reportProgress(body: {
   positionTicks: number
   durationTicks: number
   isPaused: boolean
-  playSessionId: string
+  playSessionId: string | null
   isStopped?: boolean
   seriesId?: string
   // TMDB metadata — when present, backend saves to progress store in the same call
@@ -187,6 +189,48 @@ export async function getItemProgress(
   return request(`/jellyfin/item-progress/${itemId}`)
 }
 
+// ─── Playback context (skip-segments + Up Next) ───────────────────────────────
+
+export interface PlaybackContext {
+  success: boolean
+  introStartSec: number | null
+  introEndSec: number | null
+  creditsStartSec: number | null
+  source: 'aniskip' | 'tidb' | 'default' | null
+  isDefault: boolean
+  nextEpisode: {
+    seasonNumber: number
+    episodeNumber: number
+    title: string
+  } | null
+}
+
+export interface PlaybackContextRequest {
+  tmdbId: number
+  type: 'tv' | 'movie'
+  /** Required for TV. Omit for movies. */
+  season?: number
+  /** Required for TV. Omit for movies. */
+  episode?: number
+  /** Enables Aniskip lookup for the intro/credits markers. */
+  isAnime?: boolean
+  /** Total media length in seconds — lets the server fall back to a smart
+   *  default for creditsStartSec when the API misses. */
+  duration?: number
+}
+
+/** Fetch intro/credits markers + next episode in one call. Cache per-episode in memory. */
+export async function getPlaybackContext(req: PlaybackContextRequest): Promise<PlaybackContext> {
+  const params = new URLSearchParams()
+  params.set('tmdbId', String(req.tmdbId))
+  params.set('type', req.type)
+  if (req.season != null) params.set('season', String(req.season))
+  if (req.episode != null) params.set('episode', String(req.episode))
+  if (req.isAnime) params.set('isAnime', '1')
+  if (req.duration != null && req.duration > 0) params.set('duration', String(Math.floor(req.duration)))
+  return request(`/playback-context?${params.toString()}`)
+}
+
 // ─── Jellyfin item lookup ─────────────────────────────────────────────────────
 
 /** Resolve a Jellyfin item to its series-level info.
@@ -204,31 +248,49 @@ export async function lookupJellyfinItem(itemId: string): Promise<{
 // ─── TV / seasons ─────────────────────────────────────────────────────────────
 
 export async function getSeasons(itemId: string): Promise<Season[]> {
-  // Backend returns { success, seasons: [{ key, seasonNumber, title, episodeCount }] }
+  // Backend returns { success, seasons: [{ key, seasonNumber, canonicalSeasonNumber?, title, episodeCount }] }
   const res = await request<{
     success: boolean
-    seasons: Array<{ key: string; seasonNumber: number; title: string; episodeCount: number }>
+    seasons: Array<{
+      key: string
+      seasonNumber: number
+      canonicalSeasonNumber?: number
+      title: string
+      episodeCount: number
+    }>
   }>(`/jellyfin/shows/${itemId}/seasons`)
   return (res.seasons ?? []).map(s => ({
     id: s.key,
     name: s.title,
     seasonNumber: s.seasonNumber,
+    canonicalSeasonNumber: s.canonicalSeasonNumber,
     episodeCount: s.episodeCount,
   }))
 }
 
 export async function getEpisodes(seriesId: string, seasonId: string): Promise<Episode[]> {
   // Backend: GET /jellyfin/seasons/:seasonId/episodes?seriesId=...
-  // Returns { success, episodes: [{ id, title, episodeNumber, seasonNumber, playedPercentage }] }
+  // Returns { success, episodes: [{ id, title, episodeNumber, seasonNumber,
+  //   canonicalSeasonNumber?, canonicalEpisodeNumber?, playedPercentage }] }
   const res = await request<{
     success: boolean
-    episodes: Array<{ id: string; title: string; episodeNumber: number; seasonNumber: number; playedPercentage?: number }>
+    episodes: Array<{
+      id: string
+      title: string
+      episodeNumber: number
+      seasonNumber: number
+      canonicalSeasonNumber?: number
+      canonicalEpisodeNumber?: number
+      playedPercentage?: number
+    }>
   }>(`/jellyfin/seasons/${encodeURIComponent(seasonId)}/episodes?seriesId=${encodeURIComponent(seriesId)}`)
   return (res.episodes ?? []).map(ep => ({
     id: ep.id,
     name: ep.title,
     episodeNumber: ep.episodeNumber,
     seasonNumber: ep.seasonNumber,
+    canonicalSeasonNumber: ep.canonicalSeasonNumber,
+    canonicalEpisodeNumber: ep.canonicalEpisodeNumber,
     overview: '',
     stillUrl: null,
     airDate: null,
@@ -320,7 +382,7 @@ export async function getJellyfinResume(): Promise<UnifiedMedia[]> {
     ...item,
     source: 'jellyfin' as const,
     onDemand: true,
-    seriesId: (item as Record<string, unknown>).seriesId as string | undefined,
+    seriesId: (item as unknown as Record<string, unknown>).seriesId as string | undefined,
   }))
 }
 
@@ -504,6 +566,9 @@ export async function downloadSubtitle(fileId: number | string, language = 'en')
 
 export interface TmdbSeason {
   seasonNumber: number
+  /** TMDB-canonical season number — backend uses anime episode groups etc. to
+   *  remap displayed season numbers onto canonical ones. May equal seasonNumber. */
+  canonicalSeasonNumber?: number
   title: string
   key: string
   episodeCount: number
@@ -514,6 +579,11 @@ export interface TmdbEpisode {
   title: string
   episodeNumber: number
   seasonNumber: number
+  /** TMDB-canonical season/episode (anime-group remapped). Sent verbatim to
+   *  POST /stream/play as canonicalSeason/canonicalEpisode so the backend can
+   *  resolve the correct upstream source. */
+  canonicalSeasonNumber?: number
+  canonicalEpisodeNumber?: number
   airDate: string | null
   /** Exact UTC timestamp when episode becomes available (from TVDB air time resolution) */
   availableAt?: string | null
@@ -635,6 +705,12 @@ export interface StreamPlayRequest {
   year?: number
   season?: number
   episode?: number
+  /** TMDB-canonical season number — sent when the user-facing season number
+   *  differs from TMDB canonical (e.g. anime absolute numbering). Backend uses
+   *  it to resolve the correct upstream source. */
+  canonicalSeason?: number
+  /** TMDB-canonical episode number, paired with canonicalSeason. */
+  canonicalEpisode?: number
   imdbId?: string
   isAnime?: boolean
 }

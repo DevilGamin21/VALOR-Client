@@ -237,8 +237,36 @@ export default function PlayerOverlay() {
   const isDirectPlay = !!(job?.directStreamUrl)
   const avPrefsKey = job?.seriesId || job?.itemId || ''
 
+  // ── Playback context (skip-segments + next episode) ─────────────────────
+  const [pbCtx, setPbCtx] = useState<api.PlaybackContext | null>(null)
+  useEffect(() => {
+    setPbCtx(null)
+    if (!job?.tmdbId) return
+    const isTV = job.type === 'tv' || !!job.seriesId
+    const dur = (job.durationTicks ?? 0) / 10_000_000
+    api.getPlaybackContext({
+      tmdbId: job.tmdbId,
+      type: isTV ? 'tv' : 'movie',
+      season: job.seasonNumber ?? undefined,
+      episode: job.episodeNumber ?? undefined,
+      isAnime: job.isAnime,
+      duration: dur > 0 ? dur : undefined,
+    }).then(setPbCtx).catch(() => setPbCtx(null))
+  }, [job?.tmdbId, job?.seasonNumber, job?.episodeNumber, job?.seriesId, job?.type, job?.isAnime, job?.durationTicks])
+
+  const introStart = pbCtx?.introStartSec ?? job?.introStartSec ?? null
+  const introEnd   = pbCtx?.introEndSec   ?? job?.introEndSec   ?? null
+  const creditsStart = pbCtx?.creditsStartSec ?? job?.creditsStartSec ?? null
+
   const nextEpisode = (() => {
     if (!job || job.type !== 'tv' || episodeList.length === 0) return null
+    const apiNext = pbCtx?.nextEpisode
+    if (apiNext) {
+      const match = episodeList.find(e =>
+        e.seasonNumber === apiNext.seasonNumber && e.episodeNumber === apiNext.episodeNumber
+      )
+      if (match) return match
+    }
     const idx = episodeList.findIndex((ep) => ep.jellyfinId === localEpId)
     if (idx === -1 || idx >= episodeList.length - 1) return null
     return episodeList[idx + 1]
@@ -319,17 +347,16 @@ export default function PlayerOverlay() {
     window.electronAPI.mpv.setSubDelay(subOffset).catch(() => {})
   }, [subOffset])
 
-  // ── Up Next trigger — 2 min before end ──────────────────────────────────
+  // ── Up Next trigger — fire at creditsStartSec from /playback-context.
+  //    Falls back to (duration - 120s) if the API didn't return one.
   useEffect(() => {
     if (!nextEpisode || !autoplayNext || upNextDismissedRef.current) return
     if (effectiveDuration <= 0) return
-    const remaining = effectiveDuration - time
-    if (remaining <= 120 && remaining > 0) {
-      if (!upNextVisible) setUpNextVisible(true)
-    } else if (upNextVisible) {
-      setUpNextVisible(false)
-    }
-  }, [time, effectiveDuration, nextEpisode, autoplayNext, upNextVisible])
+    const trigger = creditsStart != null ? creditsStart : effectiveDuration - 120
+    const past = time >= trigger && time < effectiveDuration
+    if (past && !upNextVisible) setUpNextVisible(true)
+    else if (!past && upNextVisible) setUpNextVisible(false)
+  }, [time, effectiveDuration, nextEpisode, autoplayNext, upNextVisible, creditsStart])
 
   // ── Auto-fetch episode list from TMDB ────────────────────────────────────
   useEffect(() => {
@@ -346,6 +373,10 @@ export default function PlayerOverlay() {
           title: e.title,
           episodeNumber: e.episodeNumber,
           seasonNumber: e.seasonNumber,
+          // Canonical comes from the TMDB response; only fall back to display
+          // numbers when the backend didn't provide a remap (non-anime case).
+          canonicalSeasonNumber: e.canonicalSeasonNumber ?? e.seasonNumber,
+          canonicalEpisodeNumber: e.canonicalEpisodeNumber ?? e.episodeNumber,
           playedPercentage: undefined,
         }))
         setEpisodeListState(epInfos)
@@ -1214,15 +1245,15 @@ export default function PlayerOverlay() {
       />
 
       {/* Skip Intro button */}
-      {currentJob?.job.introStartSec != null && currentJob?.job.introEndSec != null &&
-        time >= currentJob.job.introStartSec && time < currentJob.job.introEndSec && (
+      {introStart != null && introEnd != null &&
+        time >= introStart && time < introEnd && (
         <button
           data-focusable data-skip-action
           onMouseEnter={() => setInteractive(true)}
           onMouseLeave={() => setInteractive(false)}
           onClick={() => {
-            if (currentJob?.job.introEndSec != null) {
-              window.electronAPI.mpv.seekAbsolute(currentJob.job.introEndSec)
+            if (introEnd != null) {
+              window.electronAPI.mpv.seekAbsolute(introEnd)
             }
           }}
           className="absolute bottom-24 right-6 z-20 px-5 py-2.5 rounded-lg
@@ -1233,7 +1264,7 @@ export default function PlayerOverlay() {
         </button>
       )}
       {/* Skip Credits — only show when Up Next overlay is NOT visible (avoid duplicate prompts) */}
-      {!upNextVisible && currentJob?.job.creditsStartSec != null && time >= currentJob.job.creditsStartSec && (
+      {!upNextVisible && creditsStart != null && time >= creditsStart && (
         <button
           data-focusable data-skip-action
           onMouseEnter={() => setInteractive(true)}

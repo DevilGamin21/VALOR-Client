@@ -208,24 +208,51 @@ export default function Home() {
         setResumeMessage(status.message)
         if (status.phase === 'ready') {
           clearInterval(interval)
+
+          // On-demand status returns audioTracks/subtitleTracks empty for many
+          // sources because the upstream pipeline doesn't probe Jellyfin. Now
+          // that the file is staged, call /jellyfin/play-job to backfill the
+          // full track list — same as PlayModal and Android.
+          const resolvedItemId = status.itemId || status.jellyfinItemId || ''
+          const useDirect = directPlay && playerEngine === 'mpv'
+          const startTicks = resumeTicksRef.current
+          let probed: PlayJob | null = null
+          try {
+            probed = await api.startPlayJob({
+              itemId: resolvedItemId,
+              directPlay: useDirect,
+              maxBitrate: useDirect ? undefined : QUALITY_BITRATES[defaultQuality],
+              startTimeTicks: startTicks > 0 ? startTicks : undefined,
+              previousPlaySessionId: status.playSessionId || undefined,
+              previousDeviceId: status.deviceId,
+              tmdbId: resumeItem.tmdbId,
+            })
+          } catch {
+            // Fall through to status-only fields
+          }
+
           const job: PlayJob = {
-            itemId: status.itemId || status.jellyfinItemId || '',
-            hlsUrl: status.hlsUrl || '',
-            directStreamUrl: status.directStreamUrl,
-            playSessionId: status.playSessionId || null,
-            deviceId: status.deviceId,
-            audioTracks: status.audioTracks || [],
-            subtitleTracks: (status.subtitleTracks || []).map(t => ({
-              ...t,
-              vttUrl: t.vttUrl ?? (t as Record<string, unknown>).url as string | null ?? null,
-            })),
-            title: status.title || resumeItem.title,
-            seriesName: status.seriesName,
-            type: status.type || resumeItem.type,
-            durationTicks: status.durationTicks,
-            introStartSec: status.introStartSec,
-            introEndSec: status.introEndSec,
-            creditsStartSec: status.creditsStartSec,
+            itemId: probed?.itemId || resolvedItemId,
+            hlsUrl: probed?.hlsUrl || status.hlsUrl || '',
+            directStreamUrl: probed?.directStreamUrl ?? status.directStreamUrl,
+            playSessionId: probed?.playSessionId ?? status.playSessionId ?? null,
+            deviceId: probed?.deviceId ?? status.deviceId,
+            audioTracks: probed?.audioTracks?.length
+              ? probed.audioTracks
+              : (status.audioTracks || []),
+            subtitleTracks: (probed?.subtitleTracks?.length
+              ? probed.subtitleTracks
+              : (status.subtitleTracks || [])).map(t => ({
+                ...t,
+                vttUrl: t.vttUrl ?? t.url ?? null,
+              })),
+            title: probed?.title || status.title || resumeItem.title,
+            seriesName: probed?.seriesName ?? status.seriesName,
+            type: probed?.type || status.type || resumeItem.type,
+            durationTicks: probed?.durationTicks ?? status.durationTicks,
+            introStartSec: probed?.introStartSec ?? status.introStartSec,
+            introEndSec: probed?.introEndSec ?? status.introEndSec,
+            creditsStartSec: probed?.creditsStartSec ?? status.creditsStartSec,
             mpvOptions: status.mpvOptions,
           }
           job.posterUrl = resumeItem.posterUrl
@@ -235,6 +262,7 @@ export default function Home() {
           job.seasonNumber = resumeItem.seasonNumber
           job.episodeNumber = resumeItem.episodeNumber
           job.episodeName = resumeItem.episodeName
+          job.isAnime = resumeItem.isAnime
           openPlayer(job, resumeTicksRef.current)
           setResumeItem(null)
           setResumeStreamId(null)

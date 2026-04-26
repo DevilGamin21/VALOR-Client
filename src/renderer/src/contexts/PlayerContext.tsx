@@ -210,9 +210,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     connectCtx.setCommandHandler((command, payload) => {
       if (command !== 'playMedia') return
-      const { tmdbId, type, title, year, season, episode, startPositionTicks, isAnime } = payload as {
+      const { tmdbId, type, title, year, season, episode, canonicalSeason, canonicalEpisode, startPositionTicks, isAnime } = payload as {
         tmdbId?: number; type?: string; title?: string; year?: number
-        season?: number; episode?: number; startPositionTicks?: number; isAnime?: boolean
+        season?: number; episode?: number
+        canonicalSeason?: number; canonicalEpisode?: number
+        startPositionTicks?: number; isAnime?: boolean
       }
       if (!tmdbId) return
       console.log('[Connect] Received playMedia:', title, season && episode ? `S${season}E${episode}` : '')
@@ -225,6 +227,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         year,
         season,
         episode,
+        canonicalSeason,
+        canonicalEpisode,
         isAnime,
       }).then(({ streamId }) => {
         // Poll for ready
@@ -242,7 +246,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                 audioTracks: status.audioTracks || [],
                 subtitleTracks: (status.subtitleTracks || []).map(t => ({
                   ...t,
-                  vttUrl: t.vttUrl ?? (t as Record<string, unknown>).url as string | null ?? null,
+                  vttUrl: t.vttUrl ?? t.url ?? null,
                 })),
                 title: status.title || title || 'Unknown',
                 seriesName: status.seriesName,

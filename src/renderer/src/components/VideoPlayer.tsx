@@ -180,9 +180,44 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   const [editingOffset, setEditingOffset] = useState(false)
   const [editingOffsetValue, setEditingOffsetValue] = useState('')
 
-  // ─── Derived: next episode in list ─────────────────────────────────────────
+  // ─── Playback context (skip-segments + next episode) ───────────────────────
+  // One call per episode; cached in state for the lifetime of this player session.
+  const [pbCtx, setPbCtx] = useState<api.PlaybackContext | null>(null)
+  useEffect(() => {
+    setPbCtx(null)
+    if (!job.tmdbId) return
+    const isTV = job.type === 'tv' || !!job.seriesId
+    const dur = (job.durationTicks ?? 0) / 10_000_000
+    api.getPlaybackContext({
+      tmdbId: job.tmdbId,
+      type: isTV ? 'tv' : 'movie',
+      season: job.seasonNumber ?? undefined,
+      episode: job.episodeNumber ?? undefined,
+      isAnime: job.isAnime,
+      duration: dur > 0 ? dur : undefined,
+    }).then(setPbCtx).catch(() => setPbCtx(null))
+  }, [job.tmdbId, job.seasonNumber, job.episodeNumber, job.seriesId, job.type, job.isAnime, job.durationTicks])
+
+  // Skip-intro / credits markers — prefer the playback-context API, fall back
+  // to whatever the play-job baked in (so we still work if the API is down).
+  const introStart = pbCtx?.introStartSec ?? job.introStartSec ?? null
+  const introEnd   = pbCtx?.introEndSec   ?? job.introEndSec   ?? null
+  const creditsStart = pbCtx?.creditsStartSec ?? job.creditsStartSec ?? null
+
+  // ─── Derived: next episode (API > episodeList fallback) ───────────────────
+  // Returns an EpisodeInfo we can actually switch to (must have a jellyfinId so
+  // existing switchEpisode → startPlayJob still works). Cross-season jumps that
+  // the API knows about but episodeList doesn't currently get suppressed —
+  // matches the old behaviour where episodeList was the single source of truth.
   const nextEpisode = (() => {
     if (job.type !== 'tv' || episodeList.length === 0) return null
+    const apiNext = pbCtx?.nextEpisode
+    if (apiNext) {
+      const match = episodeList.find(e =>
+        e.seasonNumber === apiNext.seasonNumber && e.episodeNumber === apiNext.episodeNumber
+      )
+      if (match) return match
+    }
     const idx = episodeList.findIndex((ep) => ep.jellyfinId === localEpId)
     if (idx === -1 || idx >= episodeList.length - 1) return null
     return episodeList[idx + 1]
@@ -655,19 +690,18 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       setActiveCue(cue?.text ?? null)
     }
 
-    // Up Next trigger — 2 min before end for TV episodes
+    // Up Next trigger — fire at creditsStartSec from /playback-context.
+    // The server falls back to a duration-based default (90s/150s) when the
+    // upstream APIs miss, so creditsStart should usually be populated.
     if (nextEpisode && autoplayNext && !upNextDismissedRef.current) {
       const durSecs = isFinite(video.duration) && video.duration > 0
         ? video.duration
         : (job.durationTicks ?? 0) / 10_000_000
-      if (durSecs > 0) {
-        const remaining = durSecs - video.currentTime
-        if (remaining <= 120 && remaining > 0) {
-          if (!upNextVisible) setUpNextVisible(true)
-        } else if (upNextVisible) {
-          // User seeked back past threshold
-          setUpNextVisible(false)
-        }
+      const trigger = creditsStart != null ? creditsStart : (durSecs > 0 ? durSecs - 120 : null)
+      if (trigger != null && durSecs > 0) {
+        const past = video.currentTime >= trigger && video.currentTime < durSecs
+        if (past && !upNextVisible) setUpNextVisible(true)
+        else if (!past && upNextVisible) setUpNextVisible(false)
       }
     }
   }
@@ -1037,6 +1071,8 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
                 title: e.name,
                 episodeNumber: e.episodeNumber,
                 seasonNumber: e.seasonNumber,
+                canonicalSeasonNumber: e.canonicalSeasonNumber,
+                canonicalEpisodeNumber: e.canonicalEpisodeNumber,
                 playedPercentage: e.playedPercentage,
               }))
             setEpisodeList(epInfos)
@@ -1574,12 +1610,12 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       </button>
 
       {/* Skip Intro button */}
-      {job.introStartSec != null && job.introEndSec != null &&
-        currentTime >= job.introStartSec && currentTime < job.introEndSec && (
+      {introStart != null && introEnd != null &&
+        currentTime >= introStart && currentTime < introEnd && (
         <button
           onClick={() => {
             const v = videoRef.current
-            if (v && job.introEndSec != null) v.currentTime = job.introEndSec
+            if (v && introEnd != null) v.currentTime = introEnd
           }}
           className="absolute bottom-24 right-6 z-20 px-5 py-2.5 rounded-lg
                      bg-white/15 backdrop-blur-sm border border-white/30
@@ -1589,7 +1625,7 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
         </button>
       )}
       {/* Skip Credits — only show when Up Next overlay is NOT visible (avoid duplicate prompts) */}
-      {!upNextVisible && job.creditsStartSec != null && currentTime >= job.creditsStartSec && (
+      {!upNextVisible && creditsStart != null && currentTime >= creditsStart && (
         <button
           onClick={() => {
             if (nextEpisode) {

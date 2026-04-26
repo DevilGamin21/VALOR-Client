@@ -6,6 +6,7 @@ import { usePlayer } from '@/contexts/PlayerContext'
 import { useWatchlist } from '@/contexts/WatchlistContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useConnect } from '@/contexts/ConnectContext'
+import { useSettings, QUALITY_BITRATES } from '@/contexts/SettingsContext'
 import type { UnifiedMedia, PlayJob, Season, Episode, EpisodeInfo } from '@/types/media'
 
 interface MergedEpisode {
@@ -13,6 +14,9 @@ interface MergedEpisode {
   title: string
   episodeNumber: number
   seasonNumber: number
+  /** TMDB-canonical season/episode (when the displayed numbering differs). */
+  canonicalSeasonNumber?: number
+  canonicalEpisodeNumber?: number
   jellyfinId?: string
   playedPercentage?: number
   airDate: string | null
@@ -26,6 +30,7 @@ interface DisplaySeason {
   title: string
   key: string
   episodeCount: number
+  canonicalSeasonNumber?: number
 }
 
 interface ResumeHint {
@@ -58,6 +63,7 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
   const { ids, toggle } = useWatchlist()
   const { user } = useAuth()
   const connectCtx = useConnect()
+  const { directPlay: directPlaySetting, playerEngine, defaultQuality } = useSettings()
   const isPremium = user?.isPremium || user?.role === 'admin'
   const inWatchlist = ids.has(item.id)
   const hasRemoteTarget = !!connectCtx?.targetDevice
@@ -235,18 +241,22 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
       const watchedSet = new Set(watchedEps)
 
       if (tmdbEps.length > 0) {
-        const jMap = new Map(jfEps.map((ep) => [ep.episodeNumber, ep.id]))
-        const jProgressMap = new Map(jfEps.map((ep) => [ep.episodeNumber, ep.playedPercentage]))
+        const jByEp = new Map(jfEps.map((ep) => [ep.episodeNumber, ep]))
         return tmdbEps.map((ep): MergedEpisode => {
-          const jfProgress = jProgressMap.get(ep.episodeNumber)
+          const jf = jByEp.get(ep.episodeNumber)
           const userWatched = watchedSet.has(`S${ep.seasonNumber}E${ep.episodeNumber}`)
           return {
             id: ep.id,
             title: ep.title,
             episodeNumber: ep.episodeNumber,
             seasonNumber: ep.seasonNumber,
-            jellyfinId: jMap.get(ep.episodeNumber),
-            playedPercentage: jfProgress ?? (userWatched ? 100 : undefined),
+            // Canonical numbers come from the TMDB source (the backend's
+            // anime-group remap is keyed off TMDB). Jellyfin only has them
+            // if it can echo TMDB. Prefer TMDB; fall back to Jellyfin.
+            canonicalSeasonNumber: ep.canonicalSeasonNumber ?? jf?.canonicalSeasonNumber,
+            canonicalEpisodeNumber: ep.canonicalEpisodeNumber ?? jf?.canonicalEpisodeNumber,
+            jellyfinId: jf?.id,
+            playedPercentage: jf?.playedPercentage ?? (userWatched ? 100 : undefined),
             airDate: ep.airDate,
             availableAt: ep.availableAt,
             overview: ep.overview,
@@ -262,6 +272,8 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
           title: ep.name,
           episodeNumber: ep.episodeNumber,
           seasonNumber: ep.seasonNumber,
+          canonicalSeasonNumber: ep.canonicalSeasonNumber,
+          canonicalEpisodeNumber: ep.canonicalEpisodeNumber,
           jellyfinId: ep.id,
           playedPercentage: ep.playedPercentage ?? (userWatched ? 100 : undefined),
           airDate: null,
@@ -286,29 +298,61 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
 
         if (status.phase === 'ready') {
           clearInterval(interval)
+
+          // The on-demand /stream/play status response often returns audioTracks/
+          // subtitleTracks empty (or single-track) because the upstream pipeline
+          // doesn't probe Jellyfin's full media-source. Mirror Android: now that
+          // the file is staged in Jellyfin, call /jellyfin/play-job against the
+          // resolved itemId to get the complete track list, durations, and a
+          // fresh play session URL. Falls back to the status fields if the
+          // play-job call fails.
+          const resolvedItemId = status.itemId || status.jellyfinItemId || ''
+          const useDirect = directPlaySetting && playerEngine === 'mpv'
+          const startTicks = pendingResumeRef.current
+          let probed: PlayJob | null = null
+          try {
+            probed = await api.startPlayJob({
+              itemId: resolvedItemId,
+              directPlay: useDirect,
+              maxBitrate: useDirect ? undefined : QUALITY_BITRATES[defaultQuality],
+              startTimeTicks: startTicks > 0 ? startTicks : undefined,
+              previousPlaySessionId: status.playSessionId || undefined,
+              previousDeviceId: status.deviceId,
+              tmdbId: item.tmdbId,
+            })
+          } catch {
+            // Backend down or item gone — keep going with the on-demand fields
+          }
+
           const job: PlayJob = {
-            itemId: status.itemId || status.jellyfinItemId || '',
-            hlsUrl: status.hlsUrl || '',
-            playSessionId: status.playSessionId || null,
-            deviceId: status.deviceId,
-            audioTracks: status.audioTracks || [],
-            subtitleTracks: (status.subtitleTracks || []).map(t => ({
-              ...t,
-              vttUrl: t.vttUrl ?? (t as Record<string, unknown>).url as string | null ?? null,
-            })),
-            title: status.title || item.title,
-            seriesName: status.seriesName,
-            type: status.type || item.type,
-            durationTicks: status.durationTicks,
-            introStartSec: status.introStartSec,
-            introEndSec: status.introEndSec,
-            creditsStartSec: status.creditsStartSec,
+            itemId: probed?.itemId || resolvedItemId,
+            hlsUrl: probed?.hlsUrl || status.hlsUrl || '',
+            directStreamUrl: probed?.directStreamUrl ?? status.directStreamUrl,
+            playSessionId: probed?.playSessionId ?? status.playSessionId ?? null,
+            deviceId: probed?.deviceId ?? status.deviceId,
+            audioTracks: probed?.audioTracks?.length
+              ? probed.audioTracks
+              : (status.audioTracks || []),
+            subtitleTracks: (probed?.subtitleTracks?.length
+              ? probed.subtitleTracks
+              : (status.subtitleTracks || [])).map(t => ({
+                ...t,
+                vttUrl: t.vttUrl ?? t.url ?? null,
+              })),
+            title: probed?.title || status.title || item.title,
+            seriesName: probed?.seriesName ?? status.seriesName,
+            type: probed?.type || status.type || item.type,
+            durationTicks: probed?.durationTicks ?? status.durationTicks,
+            introStartSec: probed?.introStartSec ?? status.introStartSec,
+            introEndSec: probed?.introEndSec ?? status.introEndSec,
+            creditsStartSec: probed?.creditsStartSec ?? status.creditsStartSec,
           }
           job.posterUrl = tmdbPosterUrl
             || (item.posterUrl?.startsWith('https://image.tmdb.org') ? item.posterUrl : null)
           job.seriesId = resolvedSeriesId || item.seriesId || undefined
           job.tmdbId = item.tmdbId
           job.year = item.year
+          job.isAnime = item.isAnime
           // Set episode metadata for mpv title display + subtitle search
           if (pendingEpIdRef.current && pendingEpisodesRef.current.length > 0) {
             const pendingEp = pendingEpisodesRef.current.find(e => e.jellyfinId === pendingEpIdRef.current)
@@ -414,6 +458,8 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
         year: item.year ?? undefined,
         season: ep.seasonNumber,
         episode: ep.episodeNumber,
+        canonicalSeason: ep.canonicalSeasonNumber,
+        canonicalEpisode: ep.canonicalEpisodeNumber,
         startPositionTicks: startTicks > 0 ? startTicks : undefined,
         isAnime: item.isAnime,
       })
@@ -429,10 +475,16 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
       title: e.title,
       episodeNumber: e.episodeNumber,
       seasonNumber: e.seasonNumber,
+      canonicalSeasonNumber: e.canonicalSeasonNumber,
+      canonicalEpisodeNumber: e.canonicalEpisodeNumber,
       playedPercentage: e.playedPercentage,
     }))
     pendingEpIdRef.current = ep.jellyfinId
     try {
+      console.log(
+        `[OnDemand] startStream display=S${ep.seasonNumber}E${ep.episodeNumber}` +
+        ` canonical=S${ep.canonicalSeasonNumber ?? 'undefined'}E${ep.canonicalEpisodeNumber ?? 'undefined'}`
+      )
       const res = await api.startStream({
         tmdbId: item.tmdbId,
         type: 'tv',
@@ -440,6 +492,8 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
         year: item.year ?? undefined,
         season: ep.seasonNumber,
         episode: ep.episodeNumber,
+        canonicalSeason: ep.canonicalSeasonNumber,
+        canonicalEpisode: ep.canonicalEpisodeNumber,
         isAnime: item.isAnime,
       })
       setStreamId(res.streamId)
@@ -507,11 +561,6 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
       } else {
         await api.removeWatchedEpisodes(item.tmdbId, [key])
       }
-      setWatchedEpKeys((prev) => {
-        const next = new Set(prev)
-        if (watched) next.add(key); else next.delete(key)
-        return next
-      })
       setEpisodes((prev) =>
         prev.map((e) => e.id === ep.id ? { ...e, playedPercentage: watched ? 100 : 0 } : e)
       )
@@ -567,26 +616,35 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
   const backdrop = item.backdropUrl || item.posterUrl
   const isStreaming = loadingPlay && !!streamId
 
-  // Merge TMDB + Jellyfin seasons — TMDB is primary, Jellyfin fills gaps
+  // Merge TMDB + Jellyfin seasons — TMDB is primary, Jellyfin fills gaps.
+  // Canonical season number comes from the TMDB source (the backend's anime-
+  // group remap is keyed off TMDB); fall back to Jellyfin if TMDB lacks it.
   const displaySeasons: DisplaySeason[] = (() => {
+    const jfBySeason = new Map(jellyfinSeasons.map((s) => [s.seasonNumber, s]))
     if (tmdbSeasons.length === 0) {
       return jellyfinSeasons.map((s) => ({
         seasonNumber: s.seasonNumber,
+        canonicalSeasonNumber: s.canonicalSeasonNumber,
         title: s.name,
         key: s.id,
         episodeCount: s.episodeCount,
       }))
     }
     const tmdbNums = new Set(tmdbSeasons.map((s) => s.seasonNumber))
+    const tmdbWithCanonical: DisplaySeason[] = tmdbSeasons.map((s) => ({
+      ...s,
+      canonicalSeasonNumber: s.canonicalSeasonNumber ?? jfBySeason.get(s.seasonNumber)?.canonicalSeasonNumber,
+    }))
     const jfExtra = jellyfinSeasons
       .filter((s) => !tmdbNums.has(s.seasonNumber))
       .map((s): DisplaySeason => ({
         seasonNumber: s.seasonNumber,
+        canonicalSeasonNumber: s.canonicalSeasonNumber,
         title: s.name,
         key: s.id,
         episodeCount: s.episodeCount,
       }))
-    return [...tmdbSeasons, ...jfExtra].sort((a, b) => a.seasonNumber - b.seasonNumber)
+    return [...tmdbWithCanonical, ...jfExtra].sort((a, b) => a.seasonNumber - b.seasonNumber)
   })()
 
   const showActionRow = item.type === 'movie'
