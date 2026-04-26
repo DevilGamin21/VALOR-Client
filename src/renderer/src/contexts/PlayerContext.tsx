@@ -99,7 +99,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [cleanupMpv])
 
   // ── openPlayer ──────────────────────────────────────────────────────────
+  const openPlayerCallId = useRef(0)
   const openPlayer = useCallback(async (newJob: PlayJob, ticks = 0, episodes: EpisodeInfo[] = [], epId = '') => {
+    const callId = ++openPlayerCallId.current
+    console.log(`[PlayerContext] openPlayer call #${callId} itemId=${newJob.itemId} stack:`, new Error().stack?.split('\n').slice(1, 4).join(' | '))
     setJob(newJob)
     setStartPositionTicks(ticks)
     setEpisodeList(episodes)

@@ -20,6 +20,7 @@ import TitleBar from './TitleBar'
 import VideoPlayer from './VideoPlayer'
 import UpdateBanner from './UpdateBanner'
 import ConnectBar from './ConnectBar'
+import MpvRecommendationModal from './MpvRecommendationModal'
 import { useConnect } from '@/contexts/ConnectContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePlayer } from '@/contexts/PlayerContext'
@@ -331,6 +332,9 @@ export default function RootShell() {
           />
         )}
       </AnimatePresence>
+
+      {/* One-shot popups (each manages its own dismissal via localStorage) */}
+      <MpvRecommendationModal />
     </div>
   )
 }

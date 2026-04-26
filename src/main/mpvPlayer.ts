@@ -290,14 +290,28 @@ export class MpvPlayer {
   /** Load an external subtitle file */
   subAdd(path: string)         { return this.send(['sub-add', path]) }
 
-  quit() {
+  /** Resolves when the mpv process has fully exited and the named pipe is
+   *  released. Important: relaunching mpv before the previous instance has
+   *  exited fails with code 2 (pipe \\.\pipe\valor-mpv-ipc still bound). */
+  quit(): Promise<void> {
     this.quitting = true
-    this.send(['quit']).catch(() => {})
-    setTimeout(() => {
-      if (this.proc && !this.proc.killed) this.proc.kill()
-    }, 600)
-    this.ipcClient?.destroy()
-    this.ipcClient = null
+    return new Promise<void>((resolve) => {
+      const proc = this.proc
+      if (!proc || proc.exitCode != null || proc.killed) {
+        this.ipcClient?.destroy()
+        this.ipcClient = null
+        resolve()
+        return
+      }
+      proc.once('exit', () => resolve())
+      this.send(['quit']).catch(() => {})
+      // Hard-kill if mpv hasn't exited gracefully in 600ms
+      setTimeout(() => {
+        if (proc && !proc.killed && proc.exitCode == null) proc.kill()
+      }, 600)
+      this.ipcClient?.destroy()
+      this.ipcClient = null
+    })
   }
 }
 

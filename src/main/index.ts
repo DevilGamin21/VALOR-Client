@@ -476,10 +476,25 @@ ipcMain.handle('overlay:set-ignore-mouse', (_e, ignore: boolean) => {
   }
 })
 
+// Serialise mpv:launch so a second invocation that arrives while the first
+// is still spinning up can't race the named pipe. Without this, two rapid
+// launches both spawn mpv processes; the second fails with exit code 2
+// because the first hasn't released \\.\pipe\valor-mpv-ipc yet.
+let launchInFlight: Promise<void> | null = null
 ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
-  // Quit any existing instance
-  if (mpvInstance) { mpvInstance.quit(); mpvInstance = null }
-  mpvPayload = payload
+  if (launchInFlight) {
+    console.warn('[mpv:launch] already launching — ignoring duplicate call')
+    return launchInFlight
+  }
+  launchInFlight = (async () => {
+    // Quit any existing instance and WAIT for the process to fully exit so
+    // the named pipe is free before we spawn the new mpv.
+    if (mpvInstance) {
+      console.log('[mpv:launch] killing previous instance before relaunch')
+      await mpvInstance.quit().catch(() => {})
+      mpvInstance = null
+    }
+    mpvPayload = payload
 
   const p = payload as { job: { directStreamUrl?: string; hlsUrl: string; mpvOptions?: Record<string, string> }; startPositionTicks: number; title: string }
   const url = p.job.directStreamUrl || p.job.hlsUrl
@@ -529,23 +544,25 @@ ipcMain.handle('mpv:launch', async (_e, payload: unknown) => {
   // Create player host + overlay before launching mpv
   createPlayerWindow()
 
-  try {
-    const wid = playerWindow ? getWindowWid(playerWindow) : undefined
-    console.log('[mpv:launch] Embedding into HWND:', wid)
-    await mpvInstance.launch(url, {
-      startSecs: p.startPositionTicks > 0 ? p.startPositionTicks / 10_000_000 : undefined,
-      title: p.title,
-      wid,
-      extraArgs,
-    })
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    console.error('[mpv:launch] Failed:', msg)
-    broadcast('mpv:error', `mpv failed to start: ${msg}`)
-    mpvInstance = null
-    mpvPayload = null
-    closePlayerWindow()
-  }
+    try {
+      const wid = playerWindow ? getWindowWid(playerWindow) : undefined
+      console.log('[mpv:launch] Embedding into HWND:', wid)
+      await mpvInstance!.launch(url, {
+        startSecs: p.startPositionTicks > 0 ? p.startPositionTicks / 10_000_000 : undefined,
+        title: p.title,
+        wid,
+        extraArgs,
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[mpv:launch] Failed:', msg)
+      broadcast('mpv:error', `mpv failed to start: ${msg}`)
+      mpvInstance = null
+      mpvPayload = null
+      closePlayerWindow()
+    }
+  })()
+  try { await launchInFlight } finally { launchInFlight = null }
 })
 
 ipcMain.handle('mpv:toggle-pause',  ()         => mpvInstance?.togglePause())
