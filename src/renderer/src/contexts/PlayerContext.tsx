@@ -100,7 +100,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // ── openPlayer ──────────────────────────────────────────────────────────
   const openPlayerCallId = useRef(0)
+  const openPlayerInFlightRef = useRef(false)
   const openPlayer = useCallback(async (newJob: PlayJob, ticks = 0, episodes: EpisodeInfo[] = [], epId = '') => {
+    // Final defence: even if a caller misbehaves and double-fires (or two
+    // callers both kick off), drop the second invocation. Two openPlayer
+    // calls in flight race the mpv:launch IPC and kill the freshly-launched
+    // mpv. The flag clears once we've kicked launchMpv (or set isOpen).
+    if (openPlayerInFlightRef.current) {
+      console.warn('[PlayerContext] openPlayer ignored — already in flight for', newJob.itemId)
+      return
+    }
+    openPlayerInFlightRef.current = true
     const callId = ++openPlayerCallId.current
     console.log(`[PlayerContext] openPlayer call #${callId} itemId=${newJob.itemId} stack:`, new Error().stack?.split('\n').slice(1, 4).join(' | '))
     setJob(newJob)
@@ -127,6 +137,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       console.log('[PlayerContext] playerEngine=builtin, opening VideoPlayer')
       setIsOpen(true)
     }
+    // Hold the in-flight flag for a beat after kicking launchMpv so a
+    // racing second call can still be deduped while mpv is starting up.
+    setTimeout(() => { openPlayerInFlightRef.current = false }, 2000)
   }, [playerEngine, launchMpv])
 
   const closePlayer = useCallback(() => {

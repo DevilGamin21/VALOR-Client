@@ -410,7 +410,20 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
+  const playInFlightRef = useRef(false)
   async function play(startTicks = 0) {
+    if (playInFlightRef.current) {
+      console.warn('[PlayModal.play] already in flight — ignoring duplicate click')
+      return
+    }
+    playInFlightRef.current = true
+    try {
+      await playImpl(startTicks)
+    } finally {
+      playInFlightRef.current = false
+    }
+  }
+  async function playImpl(startTicks: number) {
     if (!item.tmdbId) {
       setError('Cannot play — missing TMDB ID')
       return
@@ -451,7 +464,20 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
     }
   }
 
+  const playEpisodeInFlightRef = useRef(false)
   async function playEpisode(ep: MergedEpisode, startTicks = 0) {
+    if (playEpisodeInFlightRef.current) {
+      console.warn('[PlayModal.playEpisode] already in flight — ignoring duplicate click')
+      return
+    }
+    playEpisodeInFlightRef.current = true
+    try {
+      await playEpisodeImpl(ep, startTicks)
+    } finally {
+      playEpisodeInFlightRef.current = false
+    }
+  }
+  async function playEpisodeImpl(ep: MergedEpisode, startTicks = 0) {
     if (!item.tmdbId) {
       setError('Cannot play — missing TMDB ID')
       return

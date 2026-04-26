@@ -290,7 +290,23 @@ export default function Home() {
     return () => clearInterval(interval)
   }, [resumeStreamId, resumeItem, openPlayer])
 
+  const handleResumeInFlightRef = useRef(false)
   async function handleResume(ticks: number) {
+    // Guard against re-entry: rapid double-clicks fire onClick twice before
+    // disabled={resumeLoading} propagates, which races mpv:launch and kills
+    // the freshly-launched mpv.
+    if (handleResumeInFlightRef.current) {
+      console.warn('[handleResume] already in flight — ignoring duplicate click')
+      return
+    }
+    handleResumeInFlightRef.current = true
+    try {
+      await handleResumeImpl(ticks)
+    } finally {
+      handleResumeInFlightRef.current = false
+    }
+  }
+  async function handleResumeImpl(ticks: number) {
     if (!resumeItem) return
     if (resumeItem.type === 'tv' && !resumeItem.resumeMediaId) {
       setSelectedResumeHint({ seasonNumber: resumeItem.seasonNumber, episodeNumber: resumeItem.episodeNumber, positionTicks: resumeItem.positionTicks })
