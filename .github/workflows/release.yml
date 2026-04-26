@@ -44,6 +44,37 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Fetch the bundled mpv binary on Windows runners. mpv.exe + DLLs are
+      # gitignored (too large for GitHub), so a fresh CI checkout has none of
+      # them — without this step electron-builder produces a Windows installer
+      # missing resources/mpv/, and the mpv player engine silently falls back
+      # to the built-in HLS player on every install.
+      #
+      # Bump MPV_TAG when you want a newer mpv. The 7z asset name is
+      # mpv-x86_64-<TAG>-git-<HASH>.7z — the hash changes per release, so the
+      # script discovers the exact asset name via the GitHub API.
+      - name: Fetch bundled mpv (Windows)
+        if: matrix.platform == 'win'
+        shell: bash
+        env:
+          MPV_TAG: '20260421'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ASSET_URL=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/tags/$MPV_TAG" \
+            | grep -oE '"browser_download_url":\s*"[^"]+mpv-x86_64-[0-9]+-git-[a-f0-9]+\.7z"' \
+            | head -1 | sed 's/.*: *"//;s/"$//')
+          if [ -z "$ASSET_URL" ]; then
+            echo "Could not find mpv-x86_64-*.7z on shinchiro release $MPV_TAG"; exit 1
+          fi
+          echo "Downloading $ASSET_URL"
+          curl -L -o mpv.7z "$ASSET_URL"
+          mkdir -p resources/mpv
+          7z x mpv.7z -oresources/mpv -y
+          rm mpv.7z
+          ls -la resources/mpv/mpv.exe resources/mpv/d3dcompiler_43.dll
+
       # Build + package + publish to GitHub Releases.
       # Version bump is 'none' because the tag already represents the version
       # (bumped and committed before tagging).

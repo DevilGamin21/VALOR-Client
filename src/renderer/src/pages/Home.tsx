@@ -209,26 +209,29 @@ export default function Home() {
         if (status.phase === 'ready') {
           clearInterval(interval)
 
-          // On-demand status returns audioTracks/subtitleTracks empty for many
-          // sources because the upstream pipeline doesn't probe Jellyfin. Now
-          // that the file is staged, call /jellyfin/play-job to backfill the
-          // full track list — same as PlayModal and Android.
+          // Only backfill via /jellyfin/play-job when the on-demand status
+          // didn't return audio tracks — otherwise we'd kill the on-demand
+          // transcode and start a fresh one for no reason. See PlayModal for
+          // the full reasoning.
           const resolvedItemId = status.itemId || status.jellyfinItemId || ''
           const useDirect = directPlay && playerEngine === 'mpv'
           const startTicks = resumeTicksRef.current
+          const needBackfill = !(status.audioTracks && status.audioTracks.length > 0)
           let probed: PlayJob | null = null
-          try {
-            probed = await api.startPlayJob({
-              itemId: resolvedItemId,
-              directPlay: useDirect,
-              maxBitrate: useDirect ? undefined : QUALITY_BITRATES[defaultQuality],
-              startTimeTicks: startTicks > 0 ? startTicks : undefined,
-              previousPlaySessionId: status.playSessionId || undefined,
-              previousDeviceId: status.deviceId,
-              tmdbId: resumeItem.tmdbId,
-            })
-          } catch {
-            // Fall through to status-only fields
+          if (needBackfill) {
+            try {
+              probed = await api.startPlayJob({
+                itemId: resolvedItemId,
+                directPlay: useDirect,
+                maxBitrate: useDirect ? undefined : QUALITY_BITRATES[defaultQuality],
+                startTimeTicks: startTicks > 0 ? startTicks : undefined,
+                previousPlaySessionId: status.playSessionId || undefined,
+                previousDeviceId: status.deviceId,
+                tmdbId: resumeItem.tmdbId,
+              })
+            } catch {
+              // Fall through to status-only fields
+            }
           }
 
           const job: PlayJob = {

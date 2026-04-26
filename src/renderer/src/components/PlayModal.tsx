@@ -299,29 +299,33 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
         if (status.phase === 'ready') {
           clearInterval(interval)
 
-          // The on-demand /stream/play status response often returns audioTracks/
-          // subtitleTracks empty (or single-track) because the upstream pipeline
-          // doesn't probe Jellyfin's full media-source. Mirror Android: now that
-          // the file is staged in Jellyfin, call /jellyfin/play-job against the
-          // resolved itemId to get the complete track list, durations, and a
-          // fresh play session URL. Falls back to the status fields if the
-          // play-job call fails.
+          // The on-demand /stream/play status response sometimes returns
+          // audioTracks empty because the upstream pipeline doesn't probe
+          // Jellyfin's full media-source. When that happens we need to fire
+          // a /jellyfin/play-job to backfill the full track list — but that
+          // call kills the on-demand transcode and starts a fresh one, so we
+          // ONLY do it when the on-demand response is actually missing tracks.
+          // (Previously this fired unconditionally and burned an extra
+          // transcode session per play.)
           const resolvedItemId = status.itemId || status.jellyfinItemId || ''
           const useDirect = directPlaySetting && playerEngine === 'mpv'
           const startTicks = pendingResumeRef.current
+          const needBackfill = !(status.audioTracks && status.audioTracks.length > 0)
           let probed: PlayJob | null = null
-          try {
-            probed = await api.startPlayJob({
-              itemId: resolvedItemId,
-              directPlay: useDirect,
-              maxBitrate: useDirect ? undefined : QUALITY_BITRATES[defaultQuality],
-              startTimeTicks: startTicks > 0 ? startTicks : undefined,
-              previousPlaySessionId: status.playSessionId || undefined,
-              previousDeviceId: status.deviceId,
-              tmdbId: item.tmdbId,
-            })
-          } catch {
-            // Backend down or item gone — keep going with the on-demand fields
+          if (needBackfill) {
+            try {
+              probed = await api.startPlayJob({
+                itemId: resolvedItemId,
+                directPlay: useDirect,
+                maxBitrate: useDirect ? undefined : QUALITY_BITRATES[defaultQuality],
+                startTimeTicks: startTicks > 0 ? startTicks : undefined,
+                previousPlaySessionId: status.playSessionId || undefined,
+                previousDeviceId: status.deviceId,
+                tmdbId: item.tmdbId,
+              })
+            } catch {
+              // Backend down or item gone — keep going with the on-demand fields
+            }
           }
 
           const job: PlayJob = {
