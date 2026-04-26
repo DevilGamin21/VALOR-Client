@@ -123,10 +123,18 @@ export class MpvPlayer {
 
     this.proc = spawn(mpvPath, args, { detached: false, stdio: ['ignore', 'pipe', 'pipe'] })
 
-    // Forward mpv stderr to Electron console for debugging crashes
+    // Buffer mpv stderr so we can include the last few lines in the error
+    // event when mpv exits unexpectedly — production builds have no terminal
+    // for console.error, so without this the user sees the overlay close
+    // and has nothing in DevTools to diagnose with.
+    const stderrBuf: string[] = []
     this.proc.stderr?.on('data', (d: Buffer) => {
       const line = d.toString().trim()
-      if (line) console.error('[mpv]', line)
+      if (!line) return
+      console.error('[mpv]', line)
+      stderrBuf.push(line)
+      // Cap retention so a chatty mpv doesn't balloon memory
+      if (stderrBuf.length > 200) stderrBuf.splice(0, stderrBuf.length - 200)
     })
 
     this.proc.on('error', (err) => {
@@ -136,14 +144,21 @@ export class MpvPlayer {
     this.proc.on('exit', (code, signal) => {
       this.ipcClient?.destroy()
       this.ipcClient = null
-      // Fire 'ended' whenever mpv exits after IPC was established.
-      // This covers: user closing the mpv window, normal EOF, quit command.
-      // The quit() method sets this.quitting to suppress the event when WE initiated the close.
+      // Last 30 stderr lines — usually contains the codec/render error that
+      // killed mpv. Forwarded with the ended/error events so DevTools shows it.
+      const tail = stderrBuf.slice(-30).join('\n')
+      console.log('[mpv] exit code=', code, 'signal=', signal, 'quitting=', this.quitting)
+      if (tail) console.log('[mpv] stderr tail:\n' + tail)
+
       if (this.ipcConnected && !this.quitting) {
+        // Pass the stderr tail along so the renderer can surface it
         this.handlers.ended?.()
+        if (tail) this.handlers.error?.(`mpv exited (code ${code}). stderr:\n${tail}`)
       }
-      if (code !== 0 && code !== null && signal == null && this.ipcConnected && !this.quitting) {
-        this.handlers.error?.(`mpv exited unexpectedly (code ${code})`)
+      if (!this.ipcConnected && !this.quitting) {
+        // Died before IPC even connected — mpv refused the URL, missing DLL,
+        // launch arg parse error, etc. Surface that too.
+        this.handlers.error?.(`mpv exited before IPC connected (code ${code}).${tail ? ' stderr:\n' + tail : ''}`)
       }
     })
 
