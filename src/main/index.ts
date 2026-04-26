@@ -66,11 +66,35 @@ function initDiscordRPC(): void {
 }
 
 // ─── Auto-updater setup ───────────────────────────────────────────────────────
+
+/** Wipe any half-downloaded installer left in the pending folder.
+ *  electron-updater writes to `temp-VALOR-Setup.exe` and renames to
+ *  `VALOR-Setup.exe` — if the rename failed previously (EPERM from Defender
+ *  scanning the file mid-rename, or a stale handle from a prior instance),
+ *  the leftover file blocks every subsequent download attempt. Wiping the
+ *  folder on startup makes the updater self-heal. */
+function cleanPendingUpdates(): void {
+  try {
+    // electron-updater stores at <userData>/../<app>-updater/pending — for our
+    // appId this resolves to %LOCALAPPDATA%/valor-client-updater/pending.
+    // Use the documented path rather than guessing.
+    const localAppData = process.env.LOCALAPPDATA
+    if (!localAppData) return
+    const pendingDir = join(localAppData, 'valor-client-updater', 'pending')
+    require('fs').rmSync(pendingDir, { recursive: true, force: true })
+  } catch {
+    // Best-effort — if the folder is locked we'll surface the rename error
+    // through the existing update:error path, which the banner shows.
+  }
+}
+
 function setupAutoUpdater(): void {
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.logger = null
   autoUpdater.allowElevation = false
+
+  cleanPendingUpdates()
 
   // Check 5 s after launch so the UI is ready before any banner appears
   setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000)
