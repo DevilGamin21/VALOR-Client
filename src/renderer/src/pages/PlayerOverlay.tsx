@@ -39,7 +39,7 @@ import {
 import * as api from '@/services/api'
 import type { OsSubtitleResult } from '@/services/api'
 import type { MpvLaunchPayload } from '@/types/electron'
-import type { AudioTrack, EpisodeInfo } from '@/types/media'
+import type { AudioTrack, EpisodeInfo, PlayJob } from '@/types/media'
 import type { SubtitleSize } from '@/contexts/SettingsContext'
 import { useGamepad } from '@/hooks/useGamepad'
 
@@ -65,6 +65,18 @@ const SLEEP_OPTIONS: { value: SleepOption; label: string }[] = [
   { value: '90', label: '1 hour 30 min' },
   { value: 'end', label: 'End of episode' },
 ]
+
+const STAGING_PHASE_LABELS: Record<string, string> = {
+  starting: 'Starting…',
+  resolving: 'Resolving identifiers…',
+  checking_cache: 'Checking Real-Debrid cache…',
+  scraping: 'Searching for torrents…',
+  adding_to_rd: 'Adding to Real-Debrid…',
+  downloading: 'Downloading…',
+  unrestricting: 'Getting stream URL…',
+  preparing: 'Preparing stream…',
+  building: 'Building play session…',
+}
 
 const SUBTITLE_FONT_SIZE: Record<SubtitleSize, string> = {
   small: '0.875rem',
@@ -155,6 +167,12 @@ export default function PlayerOverlay() {
   const [showEpisodePanel, setShowEpisodePanel] = useState(false)
   const [localEpId, setLocalEpId] = useState('')
   const [episodeList, setEpisodeListState] = useState<EpisodeInfo[]>([])
+
+  // ── State: episode staging via on-demand pipeline ───────────────────────
+  // Set when switchEpisode hits a TMDB-only id and has to ask the backend
+  // to stage the file into Jellyfin first. Drives the centred status box.
+  const [stagingPhase, setStagingPhase] = useState('')
+  const [stagingMessage, setStagingMessage] = useState('')
 
   // ── State: track selections ─────────────────────────────────────────────
   const [activeAudio, setActiveAudio] = useState(0)
@@ -359,10 +377,16 @@ export default function PlayerOverlay() {
   }, [time, effectiveDuration, nextEpisode, autoplayNext, upNextVisible, creditsStart])
 
   // ── Auto-fetch episode list from TMDB ────────────────────────────────────
+  // Refires when the current episode's season changes — otherwise the picker
+  // would keep showing the previous season after a cross-season jump. Also
+  // refires when there's no list yet for the current season (initial mount or
+  // when PlayModal didn't pre-populate, e.g. resume from Home / Connect).
   useEffect(() => {
-    if (!job || episodeList.length > 0 || job.type !== 'tv' || !job.tmdbId) return
+    if (!job || job.type !== 'tv' || !job.tmdbId) return
     const seasonNum = job.seasonNumber
     if (seasonNum == null) return
+    // Skip if we already have a list whose first entry matches this season.
+    if (episodeList.length > 0 && episodeList[0]?.seasonNumber === seasonNum) return
     let cancelled = false
     ;(async () => {
       try {
@@ -380,12 +404,11 @@ export default function PlayerOverlay() {
           playedPercentage: undefined,
         }))
         setEpisodeListState(epInfos)
-        if (job.itemId) setLocalEpId(job.itemId)
       } catch {}
     })()
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job?.itemId])
+  }, [job?.tmdbId, job?.seasonNumber])
 
   // ── Auto-select preferred audio on open ─────────────────────────────────
   useEffect(() => {
@@ -783,25 +806,133 @@ export default function PlayerOverlay() {
     osAutoSelectedRef.current = false
     setOsResults([])
     setActiveOsSubId(null)
+
+    // Detect: real Jellyfin IDs are 32-char hex (with or without dashes). The
+    // picker's auto-fetched TMDB list uses TMDB ids (short numeric strings) as
+    // jellyfinId — calling startPlayJob with one 500s the backend.
+    const idStripped = ep.jellyfinId.replace(/-/g, '')
+    const isJellyfinId = idStripped.length === 32 && /^[0-9a-f]+$/i.test(idStripped)
+
+    if (isJellyfinId) {
+      // Fast path: episode is already in Jellyfin, restart the play-job
+      try {
+        const newJob = await api.startPlayJob({
+          itemId: ep.jellyfinId,
+          directPlay: directPlaySetting,
+          previousPlaySessionId: job?.playSessionId || undefined,
+          previousDeviceId: job?.deviceId,
+          tmdbId: job?.tmdbId,
+        })
+        await window.electronAPI.mpv.loadFile(newJob.directStreamUrl ?? newJob.hlsUrl)
+        setCurrentJob({
+          ...currentJob!,
+          job: newJob,
+          title: ep.title,
+          currentEpisodeId: ep.jellyfinId,
+        })
+      } catch {
+        setError('Failed to load episode')
+        setBuffering(false)
+      }
+      return
+    }
+
+    // Slow path: TMDB-only id — kick the on-demand pipeline so RD stages the
+    // file into Jellyfin first, then play the resolved item. Surface the phase
+    // via stagingPhase/stagingMessage so the user sees what's happening.
+    if (!job?.tmdbId) {
+      setError('Cannot switch episode — missing TMDB ID')
+      setBuffering(false)
+      return
+    }
+    setStagingPhase('starting')
+    setStagingMessage('Starting…')
     try {
-      const newJob = await api.startPlayJob({
-        itemId: ep.jellyfinId,
-        directPlay: directPlaySetting,
-        previousPlaySessionId: job?.playSessionId || undefined,
-        previousDeviceId: job?.deviceId,
-        tmdbId: job?.tmdbId,
+      const { streamId } = await api.startStream({
+        tmdbId: job.tmdbId,
+        type: 'tv',
+        title: job.seriesName || job.title,
+        year: job.year ?? undefined,
+        season: ep.seasonNumber,
+        episode: ep.episodeNumber,
+        canonicalSeason: ep.canonicalSeasonNumber,
+        canonicalEpisode: ep.canonicalEpisodeNumber,
+        isAnime: job.isAnime,
       })
+      console.log(
+        `[OnDemand] switchEpisode display=S${ep.seasonNumber}E${ep.episodeNumber}` +
+        ` canonical=S${ep.canonicalSeasonNumber ?? 'undefined'}E${ep.canonicalEpisodeNumber ?? 'undefined'}`
+      )
+
+      // Poll until ready / error / timeout (~5 min cap)
+      const status = await pollStreamReady(streamId, (phase, msg) => {
+        setStagingPhase(phase)
+        setStagingMessage(msg)
+      })
+
+      const newJob: PlayJob = {
+        itemId: status.itemId || status.jellyfinItemId || '',
+        hlsUrl: status.hlsUrl || '',
+        directStreamUrl: status.directStreamUrl,
+        playSessionId: status.playSessionId || null,
+        deviceId: status.deviceId,
+        audioTracks: status.audioTracks || [],
+        subtitleTracks: (status.subtitleTracks || []).map(t => ({
+          ...t,
+          vttUrl: t.vttUrl ?? t.url ?? null,
+        })),
+        title: status.title || ep.title,
+        seriesName: status.seriesName || job.seriesName,
+        type: status.type || 'tv',
+        durationTicks: status.durationTicks,
+        introStartSec: status.introStartSec,
+        introEndSec: status.introEndSec,
+        creditsStartSec: status.creditsStartSec,
+        mpvOptions: status.mpvOptions,
+        tmdbId: job.tmdbId,
+        year: job.year,
+        posterUrl: job.posterUrl,
+        seriesId: job.seriesId,
+        seasonNumber: ep.seasonNumber,
+        episodeNumber: ep.episodeNumber,
+        episodeName: ep.title,
+        isAnime: job.isAnime,
+      }
       await window.electronAPI.mpv.loadFile(newJob.directStreamUrl ?? newJob.hlsUrl)
+      const resolvedId = newJob.itemId || ep.jellyfinId
       setCurrentJob({
         ...currentJob!,
         job: newJob,
         title: ep.title,
-        currentEpisodeId: ep.jellyfinId,
+        currentEpisodeId: resolvedId,
       })
-    } catch {
-      setError('Failed to load episode')
+      setLocalEpId(resolvedId)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(`Failed to load episode: ${msg}`)
       setBuffering(false)
+    } finally {
+      setStagingPhase('')
+      setStagingMessage('')
     }
+  }
+
+  /** Poll /stream/play/:streamId until phase === 'ready' or 'error'. */
+  async function pollStreamReady(
+    streamId: string,
+    onPhase: (phase: string, msg: string) => void,
+    maxAttempts = 200,
+  ): Promise<api.StreamStatus> {
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, 1500))
+      const status = await api.getStreamStatus(streamId)
+      onPhase(status.phase || '', status.message || '')
+      if (status.phase === 'error') {
+        throw new Error(status.error || status.message || 'Stream resolution failed')
+      }
+      if (status.phase === 'ready') return status
+    }
+    throw new Error('Stream resolution timed out')
   }
 
   // ── OpenSubtitles ───────────────────────────────────────────────────────
@@ -1136,10 +1267,29 @@ export default function PlayerOverlay() {
       onMouseMove={() => { showControls(); setInteractive(true) }}
     >
       {/* Opaque black backdrop while mpv loads — prevents see-through transparency */}
-      {buffering && !error && (
+      {buffering && !error && !stagingPhase && (
         <div className="absolute inset-0 bg-black flex items-center justify-center pointer-events-none">
           <div className="w-16 h-16 rounded-full bg-black/40 flex items-center justify-center">
             <Loader2 size={36} className="text-white/80 animate-spin" />
+          </div>
+        </div>
+      )}
+
+      {/* Episode staging overlay — shown when switching to a TMDB-only episode
+          that has to go through the on-demand RD pipeline before mpv can play it. */}
+      {stagingPhase && !error && (
+        <div className="absolute inset-0 bg-black flex items-center justify-center">
+          <div className="bg-[#181818] rounded-xl border border-white/10 shadow-2xl px-6 py-5 w-80 max-w-[90vw]">
+            <div className="flex items-center gap-3 mb-3">
+              <Loader2 size={18} className="text-red-500 animate-spin flex-shrink-0" />
+              <p className="text-sm text-white/90 font-medium">Loading episode</p>
+            </div>
+            <p className="text-xs text-white/60 leading-relaxed">
+              {STAGING_PHASE_LABELS[stagingPhase] || stagingMessage || 'Preparing…'}
+            </p>
+            <p className="text-[10px] text-white/30 mt-3">
+              Real-Debrid is staging the file. This usually takes a few seconds.
+            </p>
           </div>
         </div>
       )}
