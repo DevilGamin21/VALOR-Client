@@ -105,11 +105,20 @@ export class MpvPlayer {
 
     if (opts.wid) {
       // Embed mpv as a child window inside the given HWND.
-      // Use --vo=direct3d (D3D9) so mpv's renderer doesn't conflict with
-      // Chromium's D3D11 compositor — embedding gpu/d3d11 mpv inside a
-      // transparent BrowserWindow causes mpv to exit silently right after
-      // IPC connects, taking the overlay window with it.
-      args.push(`--wid=${opts.wid}`, '--vo=direct3d')
+      // Use gpu/d3d11 with libplacebo HDR pipeline so Dolby Vision profiles,
+      // HDR10, and 10-bit content render with correct colours instead of the
+      // green/purple tint you get from --vo=direct3d (D3D9). If this turns out
+      // to crash on a given GPU, the v0.2.95 stderr instrumentation surfaces
+      // the actual mpv error to DevTools so we can diagnose rather than
+      // assuming d3d11 is the culprit.
+      args.push(
+        `--wid=${opts.wid}`,
+        '--vo=gpu',
+        '--gpu-context=d3d11',
+        '--target-colorspace-hint',
+        '--tone-mapping=auto',
+        '--hdr-compute-peak=auto',
+      )
     } else {
       // Standalone borderless fullscreen window — overlay sits on top with controls
       args.push('--force-window=yes', '--window-maximized=yes', '--no-border')

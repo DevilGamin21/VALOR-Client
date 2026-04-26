@@ -131,8 +131,10 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
         }
       }).catch(() => {})
     }
-    // Fetch TMDB poster for Discord Rich Presence (only if item came from Jellyfin)
-    if (item.onDemand) {
+    // Fetch TMDB poster for Discord Rich Presence (only if item.id is a real
+    // Jellyfin GUID — synthetic "tmdb-movie-N" ids 500 the Jellyfin endpoint).
+    const idIsJellyfin = !String(item.id).startsWith('tmdb-')
+    if (item.onDemand && idIsJellyfin) {
       api.lookupJellyfinItem(String(item.id)).then((lookup) => {
         if (lookup.posterUrl) setTmdbPosterUrl(lookup.posterUrl)
       }).catch(() => {})
@@ -169,8 +171,9 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
       let seriesJfId = item.seriesId || String(item.id)
       let tmdbId = item.tmdbId
 
-      // If item came from Jellyfin (Continue Watching), resolve the series-level info
-      if (item.onDemand) {
+      // If the id is a real Jellyfin GUID (not "tmdb-tv-N"), resolve series-level info
+      const idIsJellyfin = !String(item.id).startsWith('tmdb-')
+      if (item.onDemand && idIsJellyfin) {
         try {
           const lookup = await api.lookupJellyfinItem(String(item.id))
           if (lookup.seriesId) seriesJfId = lookup.seriesId
