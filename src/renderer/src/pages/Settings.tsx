@@ -189,7 +189,9 @@ export default function Settings() {
           <div className="grid grid-cols-2 gap-2">
             {([
               { value: 'builtin' as PlayerEngine, label: 'Built-in', desc: 'HTML5 video + HLS.js', available: true },
-              { value: 'mpv' as PlayerEngine, label: 'mpv', desc: mpvAvailable ? 'External player — wider codec support' : 'Not installed in this build', available: mpvAvailable },
+              // mpv temporarily disabled — built-in HLS performance is now adequate.
+              // Kept in the UI (greyed out) so we can re-enable in one line if needed.
+              { value: 'mpv' as PlayerEngine, label: 'mpv', desc: 'Disabled in this build', available: false },
             ]).map((opt) => (
               <button
                 data-focusable

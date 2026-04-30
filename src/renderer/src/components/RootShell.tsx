@@ -334,7 +334,8 @@ export default function RootShell() {
       </AnimatePresence>
 
       {/* One-shot popups (each manages its own dismissal via localStorage) */}
-      <MpvRecommendationModal />
+      {/* MpvRecommendationModal disabled while mpv is shelved. Re-enable when mpv comes back. */}
+      {/* <MpvRecommendationModal /> */}
     </div>
   )
 }

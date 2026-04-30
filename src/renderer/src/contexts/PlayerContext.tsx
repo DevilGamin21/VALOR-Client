@@ -118,11 +118,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setEpisodeList(episodes)
     setCurrentEpisodeId(epId)
 
-    // If mpv is selected, verify it's actually installed before launching.
-    // Fall back to built-in when missing so the user still gets playback
-    // instead of a silent "nothing happens" failure.
-    let useEngine: 'mpv' | 'builtin' = playerEngine
-    if (useEngine === 'mpv') {
+    // mpv is currently shelved — built-in HLS performance is adequate. Anyone
+    // whose persisted playerEngine setting still says 'mpv' silently falls
+    // back to built-in. Re-enable by flipping MPV_ENABLED to true and the
+    // original launchMpv path will resume.
+    const MPV_ENABLED = false
+    let useEngine: 'mpv' | 'builtin' = (MPV_ENABLED ? playerEngine : 'builtin')
+    if (MPV_ENABLED && useEngine === 'mpv') {
       const mpvOk = await window.electronAPI.mpv.isAvailable().catch(() => false)
       if (!mpvOk) {
         console.warn('[PlayerContext] playerEngine=mpv but mpv.exe not found — falling back to built-in')

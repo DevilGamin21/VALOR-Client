@@ -29,25 +29,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAccounts(stored)
   }, [])
 
-  // On mount, restore session from platform storage
+  // On mount, restore session from platform storage.
+  //
+  // Prior bug: a single getMe() failure (network blip at app launch, slow DNS,
+  // backend cold-start, flaky Wi-Fi finishing connect, etc.) ran clearToken()
+  // and wiped the user's saved login. Users with reliable networks never saw
+  // it; users with slower startup networks got prompted to re-login on every
+  // launch. Now we retry transient failures and only clear on actual 401
+  // (which request() already handles by setting the message to 'Session
+  // expired' and clearing the token itself).
   useEffect(() => {
     async function restore() {
-      try {
-        const storedAccounts = await window.electronAPI.auth.getAccounts()
-        const storedToken = await window.electronAPI.auth.getToken()
+      const storedAccounts = await window.electronAPI.auth.getAccounts().catch(() => [])
+      const storedToken = await window.electronAPI.auth.getToken().catch(() => null)
 
-        if (storedAccounts.length > 0 && storedToken) {
-          // Multi-account path
-          setToken(storedToken)
-          setAccounts(storedAccounts)
-          const me = await api.getMe()
-          setUser(me)
-        } else if (storedToken) {
-          // Legacy single-token migration
-          setToken(storedToken)
-          const me = await api.getMe()
-          setUser(me)
-          // Migrate to multi-account store
+      if (!storedToken) {
+        setLoading(false)
+        return
+      }
+
+      // Optimistically populate token + accounts so React doesn't flash an
+      // unauthenticated state during the getMe round-trip.
+      setToken(storedToken)
+      setAccounts(storedAccounts)
+
+      let me: User | null = null
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          me = await api.getMe()
+          break
+        } catch (err) {
+          // 401 = real auth failure. request() already cleared the token —
+          // stop retrying and fall through with me=null.
+          if (err instanceof Error && err.message === 'Session expired') break
+          // Transient — back off and retry. 800ms / 1.6s gives the network
+          // ~2.4s total to come up.
+          if (attempt < 2) await new Promise(r => setTimeout(r, 800 * (attempt + 1)))
+        }
+      }
+
+      if (me) {
+        setUser(me)
+        // Legacy migration: token in storage but no accounts list yet.
+        if (storedAccounts.length === 0) {
           await window.electronAPI.auth.addAccount({
             id: me.id,
             username: me.username,
@@ -57,11 +81,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const migrated = await window.electronAPI.auth.getAccounts()
           setAccounts(migrated)
         }
-      } catch {
-        await window.electronAPI.auth.clearToken()
-      } finally {
-        setLoading(false)
       }
+      // If me is still null after retries and the token wasn't 401-cleared,
+      // it stays in storage. User may see login screen this session if the
+      // network never recovered, but their account isn't lost — the next
+      // launch (or a manual reload) will restore them once the backend is
+      // reachable.
+
+      setLoading(false)
     }
     restore()
   }, [])
