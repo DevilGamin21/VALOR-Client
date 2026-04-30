@@ -217,7 +217,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [mpvActive, connectCtx])
 
   // ── Connect: handle playMedia when idle (host mode) ──────────────────────
-  const { directPlay, defaultQuality } = useSettings()
+  const { directPlay, defaultQuality, preferredAudioLang, preferredSubtitleLang, playerEngine: engineForConnect } = useSettings()
   useEffect(() => {
     // Only register idle handler when no player is active
     // (when mpv is active, the mpv command handler takes over)
@@ -236,6 +236,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       console.log('[Connect] Received playMedia:', title, season && episode ? `S${season}E${episode}` : '')
 
       // Start the stream via the on-demand flow
+      const useDirect = directPlay && engineForConnect === 'mpv'
       api.startStream({
         tmdbId,
         type: (type as 'movie' | 'tv') || 'movie',
@@ -246,6 +247,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         canonicalSeason,
         canonicalEpisode,
         isAnime,
+        audioLang: preferredAudioLang !== 'auto' && preferredAudioLang !== '' ? preferredAudioLang : undefined,
+        subtitleLang: preferredSubtitleLang !== 'off' && preferredSubtitleLang !== 'auto' && preferredSubtitleLang !== '' ? preferredSubtitleLang : undefined,
+        maxBitrate: useDirect ? undefined : QUALITY_BITRATES[defaultQuality],
+        startTimeTicks: startPositionTicks && startPositionTicks > 0 ? startPositionTicks : undefined,
       }).then(({ streamId }) => {
         // Poll for ready
         const poll = setInterval(async () => {

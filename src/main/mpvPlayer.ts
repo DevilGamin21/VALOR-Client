@@ -89,6 +89,11 @@ export class MpvPlayer {
     const args: string[] = [
       url,
       '--no-terminal',
+      // Force verbose-info logging to stderr so we can diagnose silent exits.
+      // Without this some shinchiro builds emit nothing on certain failure
+      // modes (e.g. d3d11 init failure) and the renderer has no clue why mpv
+      // closed.
+      '--msg-level=all=info',
       '--keepaspect=yes',
       // Force D3D11 hardware decode on Windows — 'auto' can silently fall back to CPU
       ...(process.platform === 'win32'
@@ -156,18 +161,24 @@ export class MpvPlayer {
       // Last 30 stderr lines — usually contains the codec/render error that
       // killed mpv. Forwarded with the ended/error events so DevTools shows it.
       const tail = stderrBuf.slice(-30).join('\n')
-      console.log('[mpv] exit code=', code, 'signal=', signal, 'quitting=', this.quitting)
+      const why = this.quitting
+        ? 'quit-requested'
+        : this.ipcConnected
+          ? 'crashed-after-ipc'
+          : 'died-pre-ipc'
+      console.log('[mpv] exit code=', code, 'signal=', signal, 'why=', why)
       if (tail) console.log('[mpv] stderr tail:\n' + tail)
 
+      // Always surface the exit to the renderer, even with no stderr — without
+      // this, silent exits (clean code-0 exit with no log output) leave the
+      // user staring at a closed overlay with no diagnostic at all.
+      this.handlers.error?.(
+        `mpv exit (${why}, code=${code}, signal=${signal})` +
+        (tail ? '. stderr:\n' + tail : ' — no stderr captured'),
+      )
+
       if (this.ipcConnected && !this.quitting) {
-        // Pass the stderr tail along so the renderer can surface it
         this.handlers.ended?.()
-        if (tail) this.handlers.error?.(`mpv exited (code ${code}). stderr:\n${tail}`)
-      }
-      if (!this.ipcConnected && !this.quitting) {
-        // Died before IPC even connected — mpv refused the URL, missing DLL,
-        // launch arg parse error, etc. Surface that too.
-        this.handlers.error?.(`mpv exited before IPC connected (code ${code}).${tail ? ' stderr:\n' + tail : ''}`)
       }
     })
 

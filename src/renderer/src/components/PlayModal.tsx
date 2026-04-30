@@ -63,7 +63,7 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
   const { ids, toggle } = useWatchlist()
   const { user } = useAuth()
   const connectCtx = useConnect()
-  const { directPlay: directPlaySetting, playerEngine, defaultQuality } = useSettings()
+  const { directPlay: directPlaySetting, playerEngine, defaultQuality, preferredAudioLang, preferredSubtitleLang } = useSettings()
   const isPremium = user?.isPremium || user?.role === 'admin'
   const inWatchlist = ids.has(item.id)
   const hasRemoteTarget = !!connectCtx?.targetDevice
@@ -448,12 +448,21 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
     pendingEpisodesRef.current = []
     pendingEpIdRef.current = undefined
     try {
+      const useDirect = directPlaySetting && playerEngine === 'mpv'
       const res = await api.startStream({
         tmdbId: item.tmdbId,
         type: item.type,
         title: item.title,
         year: item.year ?? undefined,
         isAnime: item.isAnime,
+        // Forward-compat: when backend honors these, staging boots the
+        // transcode with the right audio/sub/bitrate from the start, eliminating
+        // the post-mount audio-switch + backfill-probe restarts. No-op if the
+        // backend ignores them.
+        audioLang: preferredAudioLang !== 'auto' && preferredAudioLang !== '' ? preferredAudioLang : undefined,
+        subtitleLang: preferredSubtitleLang !== 'off' && preferredSubtitleLang !== 'auto' && preferredSubtitleLang !== '' ? preferredSubtitleLang : undefined,
+        maxBitrate: useDirect ? undefined : QUALITY_BITRATES[defaultQuality],
+        startTimeTicks: startTicks > 0 ? startTicks : undefined,
       })
       setStreamId(res.streamId)
       setStreamPhase('starting')
@@ -518,6 +527,7 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
         `[OnDemand] startStream display=S${ep.seasonNumber}E${ep.episodeNumber}` +
         ` canonical=S${ep.canonicalSeasonNumber ?? 'undefined'}E${ep.canonicalEpisodeNumber ?? 'undefined'}`
       )
+      const useDirect = directPlaySetting && playerEngine === 'mpv'
       const res = await api.startStream({
         tmdbId: item.tmdbId,
         type: 'tv',
@@ -528,6 +538,10 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
         canonicalSeason: ep.canonicalSeasonNumber,
         canonicalEpisode: ep.canonicalEpisodeNumber,
         isAnime: item.isAnime,
+        audioLang: preferredAudioLang !== 'auto' && preferredAudioLang !== '' ? preferredAudioLang : undefined,
+        subtitleLang: preferredSubtitleLang !== 'off' && preferredSubtitleLang !== 'auto' && preferredSubtitleLang !== '' ? preferredSubtitleLang : undefined,
+        maxBitrate: useDirect ? undefined : QUALITY_BITRATES[defaultQuality],
+        startTimeTicks: startTicks > 0 ? startTicks : undefined,
       })
       setStreamId(res.streamId)
       setStreamPhase('starting')

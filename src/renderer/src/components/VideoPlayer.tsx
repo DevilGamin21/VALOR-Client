@@ -170,7 +170,15 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
   // Track selections
   const [activeAudio, setActiveAudio] = useState(0)
   const [activeSub, setActiveSub] = useState<number | null>(null)
-  const [activeQuality, setActiveQuality] = useState(0)
+  // Initialise from defaultQuality so subsequent track-switch restarts (audio/sub/seek)
+  // send the same maxBitrate the initial play used. Prior bug: this defaulted to 0
+  // ('Original') regardless of user's defaultQuality, so every restart silently
+  // flipped bitrate between defaultQuality and uncapped — forcing the backend to
+  // re-encode at a different rate each time.
+  const [activeQuality, setActiveQuality] = useState(() => {
+    const idx = QUALITY_PRESETS.findIndex(p => p.label.toLowerCase() === defaultQuality.toLowerCase())
+    return idx >= 0 ? idx : 0
+  })
   const [activeSpeed, setActiveSpeed] = useState(1)
 
   // Subtitle rendering
@@ -300,12 +308,21 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
     let needsAudioSwitch = false
     let targetAudioIndex: number | undefined
 
-    // Priority 1: saved per-series/item audio pref
-    if (savedPrefs?.audio && savedPrefs.audio > 0 && job.audioTracks.some((t) => t.index === savedPrefs.audio)) {
-      needsAudioSwitch = true
-      targetAudioIndex = savedPrefs.audio
+    // Priority 1: saved per-series/item audio pref. Skip the restart when the
+    // saved track is already marked default — that means the backend already
+    // staged with this audio (forward-compat once /stream/play honors
+    // audioStreamIndex/audioLang) so a switch would be a wasted transcode.
+    if (savedPrefs?.audio && savedPrefs.audio > 0) {
+      const target = job.audioTracks.find((t) => t.index === savedPrefs.audio)
+      if (target && !target.isDefault) {
+        needsAudioSwitch = true
+        targetAudioIndex = savedPrefs.audio
+      }
     }
-    // Priority 2: preferred audio language setting
+    // Priority 2: preferred audio language setting. The !t.isDefault check
+    // handles the forward-compat case: when backend honors audioLang at
+    // staging, the chosen track comes back marked default and we skip the
+    // restart automatically.
     else if (preferredAudioLang !== 'auto' && preferredAudioLang !== '' && job.audioTracks.length > 1) {
       const match = job.audioTracks.find(
         (t) => t.language?.toLowerCase().startsWith(preferredAudioLang.toLowerCase()) && !t.isDefault

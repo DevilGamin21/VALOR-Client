@@ -67,7 +67,7 @@ const RESUME_PHASE_LABELS: Record<string, string> = {
 
 export default function Home() {
   const { isOpen, openPlayer } = usePlayer()
-  const { discordRPC, directPlay, defaultQuality, playerEngine } = useSettings()
+  const { discordRPC, directPlay, defaultQuality, playerEngine, preferredAudioLang, preferredSubtitleLang } = useSettings()
   const wasOpenRef = useRef(false)
   const [searchParams] = useSearchParams()
   const query = searchParams.get('q') || ''
@@ -319,31 +319,41 @@ export default function Home() {
     setResumeMessage('')
     resumeTicksRef.current = ticks
 
-    // Fast path: try Jellyfin play-job (instant if item still exists)
-    try {
-      const playId = resumeItem.resumeMediaId || String(resumeItem.id)
-      // Only use directPlay for mpv — built-in player can't decode DTS/AC3/TrueHD
-      const useDirect = directPlay && playerEngine === 'mpv'
-      const job = await api.startPlayJob({
-        itemId: playId,
-        directPlay: useDirect,
-        maxBitrate: useDirect ? undefined : QUALITY_BITRATES[defaultQuality],
-        startTimeTicks: ticks > 0 ? ticks : undefined,
-        tmdbId: resumeItem.tmdbId,
-      })
-      job.posterUrl = resumeItem.posterUrl
-      job.seriesId = resumeItem.seriesId || undefined
-      job.tmdbId = resumeItem.tmdbId
-      job.year = resumeItem.year
-      job.seasonNumber = resumeItem.seasonNumber
-      job.episodeNumber = resumeItem.episodeNumber
-      job.episodeName = resumeItem.episodeName
-      openPlayer(job, ticks)
-      setResumeItem(null)
-      setResumeLoading(false)
-      return
-    } catch {
-      // Fast path failed — item gone from Jellyfin
+    // Fast path: try Jellyfin play-job (instant if item still exists).
+    //
+    // SKIP for TV begin-from-zero: backend's continue-watching entry can have
+    // stale resumeMediaId after finishing an episode — S/E numbers roll
+    // forward to the next ep but resumeMediaId/episodeName still point at the
+    // just-finished one. Using fast path with that id silently plays the wrong
+    // episode. For ticks=0 TV we go straight to the slow path which sends
+    // explicit season/episode to startStream and resolves it correctly.
+    const isTvBegin = resumeItem.type === 'tv' && ticks === 0
+    if (!isTvBegin) {
+      try {
+        const playId = resumeItem.resumeMediaId || String(resumeItem.id)
+        // Only use directPlay for mpv — built-in player can't decode DTS/AC3/TrueHD
+        const useDirect = directPlay && playerEngine === 'mpv'
+        const job = await api.startPlayJob({
+          itemId: playId,
+          directPlay: useDirect,
+          maxBitrate: useDirect ? undefined : QUALITY_BITRATES[defaultQuality],
+          startTimeTicks: ticks > 0 ? ticks : undefined,
+          tmdbId: resumeItem.tmdbId,
+        })
+        job.posterUrl = resumeItem.posterUrl
+        job.seriesId = resumeItem.seriesId || undefined
+        job.tmdbId = resumeItem.tmdbId
+        job.year = resumeItem.year
+        job.seasonNumber = resumeItem.seasonNumber
+        job.episodeNumber = resumeItem.episodeNumber
+        job.episodeName = resumeItem.episodeName
+        openPlayer(job, ticks)
+        setResumeItem(null)
+        setResumeLoading(false)
+        return
+      } catch {
+        // Fast path failed — item gone from Jellyfin
+      }
     }
 
     // Slow path: on-demand stream via RD (requires tmdbId)
@@ -357,6 +367,7 @@ export default function Home() {
     try {
       setResumePhase('starting')
       setResumeMessage('Starting…')
+      const useDirect = directPlay && playerEngine === 'mpv'
       const res = await api.startStream({
         tmdbId: resumeItem.tmdbId,
         type: resumeItem.type as 'movie' | 'tv',
@@ -364,6 +375,12 @@ export default function Home() {
         year: resumeItem.year ?? undefined,
         season: resumeItem.seasonNumber ?? undefined,
         episode: resumeItem.episodeNumber ?? undefined,
+        // Forward-compat audio/sub/bitrate hints — backend boots transcode with
+        // the right tracks from the start when honored, no-op otherwise.
+        audioLang: preferredAudioLang !== 'auto' && preferredAudioLang !== '' ? preferredAudioLang : undefined,
+        subtitleLang: preferredSubtitleLang !== 'off' && preferredSubtitleLang !== 'auto' && preferredSubtitleLang !== '' ? preferredSubtitleLang : undefined,
+        maxBitrate: useDirect ? undefined : QUALITY_BITRATES[defaultQuality],
+        startTimeTicks: ticks > 0 ? ticks : undefined,
       })
       setResumeStreamId(res.streamId) // triggers polling effect
     } catch {

@@ -713,6 +713,25 @@ export interface StreamPlayRequest {
   canonicalEpisode?: number
   imdbId?: string
   isAnime?: boolean
+  /** Preferred audio track index for the on-demand transcode. When the backend
+   *  honors this, the staging FFmpeg session boots with the right audio from
+   *  the start, eliminating the post-mount audio-switch restart. */
+  audioStreamIndex?: number
+  /** Preferred audio language (ISO 639-2/B, e.g. 'jpn' for Japanese). Used by
+   *  the backend to resolve audioStreamIndex when the client doesn't yet know
+   *  the track list (first play of a new item). */
+  audioLang?: string
+  /** Preferred subtitle stream index. Same rationale as audioStreamIndex. */
+  subtitleStreamIndex?: number
+  /** Preferred subtitle language. Same rationale as audioLang. */
+  subtitleLang?: string
+  /** Maximum bitrate cap for the transcode (bps). Sent at staging time so
+   *  the backend doesn't have to re-encode at a different rate after VideoPlayer
+   *  mounts and the user's quality preset gets applied. */
+  maxBitrate?: number
+  /** Initial seek position in ticks (10M ticks/sec). Lets the backend boot the
+   *  transcode at the resume point instead of re-staging when VideoPlayer seeks. */
+  startTimeTicks?: number
 }
 
 export interface StreamStatus {

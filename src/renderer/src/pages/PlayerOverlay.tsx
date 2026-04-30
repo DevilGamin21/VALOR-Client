@@ -176,7 +176,14 @@ export default function PlayerOverlay() {
 
   // ── State: track selections ─────────────────────────────────────────────
   const [activeAudio, setActiveAudio] = useState(0)
-  const [activeQuality, setActiveQuality] = useState(0)
+  // Initialise from defaultQuality so subsequent restarts (audio/sub/seek) send
+  // the same maxBitrate as the initial play. Otherwise every track switch
+  // silently flips bitrate between defaultQuality and uncapped.
+  const [activeQuality, setActiveQuality] = useState(() => {
+    const dq = getSettingStr('defaultQuality', 'original')
+    const idx = QUALITY_PRESETS.findIndex(p => p.label.toLowerCase() === dq.toLowerCase())
+    return idx >= 0 ? idx : 0
+  })
   const [activeSpeed, setActiveSpeed] = useState(1)
   const [volume, setVolume] = useState(100)
   const [muted, setMuted] = useState(false)
@@ -858,6 +865,10 @@ export default function PlayerOverlay() {
         canonicalSeason: ep.canonicalSeasonNumber,
         canonicalEpisode: ep.canonicalEpisodeNumber,
         isAnime: job.isAnime,
+        // Forward-compat hints — backend boots transcode with right tracks.
+        audioLang: preferredAudioLang !== 'auto' && preferredAudioLang !== '' ? preferredAudioLang : undefined,
+        subtitleLang: preferredSubtitleLang !== 'off' && preferredSubtitleLang !== 'auto' && preferredSubtitleLang !== '' ? preferredSubtitleLang : undefined,
+        maxBitrate: !directPlaySetting ? QUALITY_PRESETS[activeQuality].maxBitrate || undefined : undefined,
       })
       console.log(
         `[OnDemand] switchEpisode display=S${ep.seasonNumber}E${ep.episodeNumber}` +
