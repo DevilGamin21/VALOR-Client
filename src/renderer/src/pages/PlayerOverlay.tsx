@@ -169,10 +169,28 @@ export default function PlayerOverlay() {
   const [episodeList, setEpisodeListState] = useState<EpisodeInfo[]>([])
 
   // ── State: episode staging via on-demand pipeline ───────────────────────
-  // Set when switchEpisode hits a TMDB-only id and has to ask the backend
-  // to stage the file into Jellyfin first. Drives the centred status box.
+  // Set when switchEpisode is in flight — drives the top drop-down banner.
   const [stagingPhase, setStagingPhase] = useState('')
   const [stagingMessage, setStagingMessage] = useState('')
+
+  // ── State: Play Next / Up Next switch tracking ─────────────────────────
+  // switchTarget is the episode we're currently transitioning to. Drives the
+  // top drop-down banner. Stays set across the entire pipeline + retry loop,
+  // and clears when mpv emits the first time tick for the new file.
+  type SwitchPhaseKind = 'loading' | 'error' | 'fatal'
+  const [switchTarget, setSwitchTarget] = useState<EpisodeInfo | null>(null)
+  const [switchPhaseKind, setSwitchPhaseKind] = useState<SwitchPhaseKind | null>(null)
+  const [switchError, setSwitchError] = useState('')
+  const [switchAttemptCount, setSwitchAttemptCount] = useState(0)
+  const [switchCountdown, setSwitchCountdown] = useState<number | null>(null)
+  // 200ms green flash on Up Next "Play Now" before the overlay collapses.
+  const [upNextConfirmed, setUpNextConfirmed] = useState(false)
+  // Synchronous reentry guard — state updates are async, so a fast double-click
+  // could slip past a `disabled` prop. Refs flip in the same tick.
+  const isSwitchingRef = useRef(false)
+  // Set true after `mpv.loadFile()` resolves for the new episode; cleared on
+  // the first `onTime` for the new file, which is when we hide the banner.
+  const switchCompleteRef = useRef(false)
 
   // ── State: track selections ─────────────────────────────────────────────
   const [activeAudio, setActiveAudio] = useState(0)
@@ -317,6 +335,18 @@ export default function PlayerOverlay() {
       timeRef.current = t
       // If we're still showing the spinner when time updates arrive, clear it
       setBuffering(false)
+      // `mpv:ready` only fires once at launch — for episode switches we use
+      // the first time tick of the new file as the "actually playing" signal.
+      if (switchCompleteRef.current) {
+        switchCompleteRef.current = false
+        setSwitchTarget(null)
+        setSwitchPhaseKind(null)
+        setSwitchError('')
+        setSwitchAttemptCount(0)
+        setSwitchCountdown(null)
+        setStagingPhase('')
+        setStagingMessage('')
+      }
     })
     window.electronAPI.mpv.onDuration((d) => {
       console.log('[overlay] mpv duration:', d)
@@ -382,6 +412,31 @@ export default function PlayerOverlay() {
     if (past && !upNextVisible) setUpNextVisible(true)
     else if (!past && upNextVisible) setUpNextVisible(false)
   }, [time, effectiveDuration, nextEpisode, autoplayNext, upNextVisible, creditsStart])
+
+  // Reset the Play Now green-flash whenever the Up Next overlay re-opens.
+  useEffect(() => {
+    if (!upNextVisible) setUpNextConfirmed(false)
+  }, [upNextVisible])
+
+  // Switch error countdown: ticks once per second. At 0:
+  //   - phase 'error' → auto-retry the same episode (one retry only)
+  //   - phase 'fatal' → close the player (one retry already failed)
+  useEffect(() => {
+    if (switchCountdown === null) return
+    if (switchCountdown <= 0) {
+      if (switchPhaseKind === 'error' && switchTarget) {
+        setSwitchCountdown(null)
+        switchEpisode(switchTarget, true)
+      } else if (switchPhaseKind === 'fatal') {
+        setSwitchCountdown(null)
+        handleClose()
+      }
+      return
+    }
+    const t = setTimeout(() => setSwitchCountdown((c) => (c ?? 1) - 1), 1000)
+    return () => clearTimeout(t)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [switchCountdown, switchPhaseKind])
 
   // ── Auto-fetch episode list from TMDB ────────────────────────────────────
   // Refires when the current episode's season changes — otherwise the picker
@@ -792,19 +847,29 @@ export default function PlayerOverlay() {
     }
   }
 
-  async function switchEpisode(ep: EpisodeInfo) {
+  async function switchEpisode(ep: EpisodeInfo, isRetry = false) {
+    // Synchronous reentry guard. Even after the React-side `disabled` prop
+    // applies, a fast double-click can land before re-render — a ref flips
+    // in the same tick, so the second call short-circuits immediately.
+    if (isSwitchingRef.current) return
+    isSwitchingRef.current = true
+
+    setSwitchTarget(ep)
+    setSwitchPhaseKind('loading')
+    setSwitchError('')
+    setSwitchCountdown(null)
+    setSwitchAttemptCount((c) => (isRetry ? c + 1 : 1))
+
     setUpNextVisible(false)
     upNextDismissedRef.current = false
     markedPlayedRef.current = false
 
-    // Pause current playback while loading the next episode
+    // Pause current playback while loading the next episode — keeps the
+    // previous episode's last frame on screen so the player visually stays
+    // on the current ep until the new file actually starts playing.
     window.electronAPI.mpv.pause().catch(() => {})
 
     setShowEpisodePanel(false)
-    setBuffering(true)
-    setTime(0)
-    setDuration(0)
-    setLocalEpId(ep.jellyfinId)
     setVttCues([])
     setActiveCue(null)
     setSubOffset(0)
@@ -820,9 +885,11 @@ export default function PlayerOverlay() {
     const idStripped = ep.jellyfinId.replace(/-/g, '')
     const isJellyfinId = idStripped.length === 32 && /^[0-9a-f]+$/i.test(idStripped)
 
-    if (isJellyfinId) {
-      // Fast path: episode is already in Jellyfin, restart the play-job
-      try {
+    try {
+      if (isJellyfinId) {
+        // Fast path: episode is already in Jellyfin, restart the play-job
+        setStagingPhase('preparing')
+        setStagingMessage('Loading episode…')
         const newJob = await api.startPlayJob({
           itemId: ep.jellyfinId,
           directPlay: directPlaySetting,
@@ -831,100 +898,104 @@ export default function PlayerOverlay() {
           tmdbId: job?.tmdbId,
         })
         await window.electronAPI.mpv.loadFile(newJob.directStreamUrl ?? newJob.hlsUrl)
+        // Defer chrome update until after mpv has the new file — otherwise
+        // `nextEpisode` (derived from localEpId) slides forward and re-renders
+        // the Up Next card pointing at the episode after this one.
+        switchCompleteRef.current = true
+        setTime(0)
+        setDuration(0)
         setCurrentJob({
           ...currentJob!,
           job: newJob,
           title: ep.title,
           currentEpisodeId: ep.jellyfinId,
         })
-      } catch {
-        setError('Failed to load episode')
-        setBuffering(false)
+        setLocalEpId(ep.jellyfinId)
+      } else {
+        // Slow path: TMDB-only id — kick the on-demand pipeline so RD stages
+        // the file into Jellyfin first, then play the resolved item.
+        if (!job?.tmdbId) throw new Error('Cannot switch episode — missing TMDB ID')
+        setStagingPhase('starting')
+        setStagingMessage('Starting…')
+        const { streamId } = await api.startStream({
+          tmdbId: job.tmdbId,
+          type: 'tv',
+          title: job.seriesName || job.title,
+          year: job.year ?? undefined,
+          season: ep.seasonNumber,
+          episode: ep.episodeNumber,
+          canonicalSeason: ep.canonicalSeasonNumber,
+          canonicalEpisode: ep.canonicalEpisodeNumber,
+          isAnime: job.isAnime,
+          // Forward-compat hints — backend boots transcode with right tracks.
+          audioLang: preferredAudioLang !== 'auto' && preferredAudioLang !== '' ? preferredAudioLang : undefined,
+          subtitleLang: preferredSubtitleLang !== 'off' && preferredSubtitleLang !== 'auto' && preferredSubtitleLang !== '' ? preferredSubtitleLang : undefined,
+          maxBitrate: !directPlaySetting ? QUALITY_PRESETS[activeQuality].maxBitrate || undefined : undefined,
+        })
+        console.log(
+          `[OnDemand] switchEpisode display=S${ep.seasonNumber}E${ep.episodeNumber}` +
+          ` canonical=S${ep.canonicalSeasonNumber ?? 'undefined'}E${ep.canonicalEpisodeNumber ?? 'undefined'}`
+        )
+
+        // Poll until ready / error / timeout (~5 min cap)
+        const status = await pollStreamReady(streamId, (phase, msg) => {
+          setStagingPhase(phase)
+          setStagingMessage(msg)
+        })
+
+        const newJob: PlayJob = {
+          itemId: status.itemId || status.jellyfinItemId || '',
+          hlsUrl: status.hlsUrl || '',
+          directStreamUrl: status.directStreamUrl,
+          playSessionId: status.playSessionId || null,
+          deviceId: status.deviceId,
+          audioTracks: status.audioTracks || [],
+          subtitleTracks: (status.subtitleTracks || []).map(t => ({
+            ...t,
+            vttUrl: t.vttUrl ?? t.url ?? null,
+          })),
+          title: status.title || ep.title,
+          seriesName: status.seriesName || job.seriesName,
+          type: status.type || 'tv',
+          durationTicks: status.durationTicks,
+          introStartSec: status.introStartSec,
+          introEndSec: status.introEndSec,
+          creditsStartSec: status.creditsStartSec,
+          mpvOptions: status.mpvOptions,
+          tmdbId: job.tmdbId,
+          year: job.year,
+          posterUrl: job.posterUrl,
+          seriesId: job.seriesId,
+          seasonNumber: ep.seasonNumber,
+          episodeNumber: ep.episodeNumber,
+          episodeName: ep.title,
+          isAnime: job.isAnime,
+        }
+        await window.electronAPI.mpv.loadFile(newJob.directStreamUrl ?? newJob.hlsUrl)
+        switchCompleteRef.current = true
+        setTime(0)
+        setDuration(0)
+        const resolvedId = newJob.itemId || ep.jellyfinId
+        setCurrentJob({
+          ...currentJob!,
+          job: newJob,
+          title: ep.title,
+          currentEpisodeId: resolvedId,
+        })
+        setLocalEpId(resolvedId)
       }
-      return
-    }
-
-    // Slow path: TMDB-only id — kick the on-demand pipeline so RD stages the
-    // file into Jellyfin first, then play the resolved item. Surface the phase
-    // via stagingPhase/stagingMessage so the user sees what's happening.
-    if (!job?.tmdbId) {
-      setError('Cannot switch episode — missing TMDB ID')
-      setBuffering(false)
-      return
-    }
-    setStagingPhase('starting')
-    setStagingMessage('Starting…')
-    try {
-      const { streamId } = await api.startStream({
-        tmdbId: job.tmdbId,
-        type: 'tv',
-        title: job.seriesName || job.title,
-        year: job.year ?? undefined,
-        season: ep.seasonNumber,
-        episode: ep.episodeNumber,
-        canonicalSeason: ep.canonicalSeasonNumber,
-        canonicalEpisode: ep.canonicalEpisodeNumber,
-        isAnime: job.isAnime,
-        // Forward-compat hints — backend boots transcode with right tracks.
-        audioLang: preferredAudioLang !== 'auto' && preferredAudioLang !== '' ? preferredAudioLang : undefined,
-        subtitleLang: preferredSubtitleLang !== 'off' && preferredSubtitleLang !== 'auto' && preferredSubtitleLang !== '' ? preferredSubtitleLang : undefined,
-        maxBitrate: !directPlaySetting ? QUALITY_PRESETS[activeQuality].maxBitrate || undefined : undefined,
-      })
-      console.log(
-        `[OnDemand] switchEpisode display=S${ep.seasonNumber}E${ep.episodeNumber}` +
-        ` canonical=S${ep.canonicalSeasonNumber ?? 'undefined'}E${ep.canonicalEpisodeNumber ?? 'undefined'}`
-      )
-
-      // Poll until ready / error / timeout (~5 min cap)
-      const status = await pollStreamReady(streamId, (phase, msg) => {
-        setStagingPhase(phase)
-        setStagingMessage(msg)
-      })
-
-      const newJob: PlayJob = {
-        itemId: status.itemId || status.jellyfinItemId || '',
-        hlsUrl: status.hlsUrl || '',
-        directStreamUrl: status.directStreamUrl,
-        playSessionId: status.playSessionId || null,
-        deviceId: status.deviceId,
-        audioTracks: status.audioTracks || [],
-        subtitleTracks: (status.subtitleTracks || []).map(t => ({
-          ...t,
-          vttUrl: t.vttUrl ?? t.url ?? null,
-        })),
-        title: status.title || ep.title,
-        seriesName: status.seriesName || job.seriesName,
-        type: status.type || 'tv',
-        durationTicks: status.durationTicks,
-        introStartSec: status.introStartSec,
-        introEndSec: status.introEndSec,
-        creditsStartSec: status.creditsStartSec,
-        mpvOptions: status.mpvOptions,
-        tmdbId: job.tmdbId,
-        year: job.year,
-        posterUrl: job.posterUrl,
-        seriesId: job.seriesId,
-        seasonNumber: ep.seasonNumber,
-        episodeNumber: ep.episodeNumber,
-        episodeName: ep.title,
-        isAnime: job.isAnime,
-      }
-      await window.electronAPI.mpv.loadFile(newJob.directStreamUrl ?? newJob.hlsUrl)
-      const resolvedId = newJob.itemId || ep.jellyfinId
-      setCurrentJob({
-        ...currentJob!,
-        job: newJob,
-        title: ep.title,
-        currentEpisodeId: resolvedId,
-      })
-      setLocalEpId(resolvedId)
+      // Banner stays visible — cleared on first onTime tick of new file.
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      setError(`Failed to load episode: ${msg}`)
-      setBuffering(false)
-    } finally {
+      // One auto-retry. If this WAS the retry, give up and auto-close.
+      const willRetry = !isRetry
+      setSwitchError(msg || 'Failed to load episode')
+      setSwitchPhaseKind(willRetry ? 'error' : 'fatal')
+      setSwitchCountdown(5)
       setStagingPhase('')
       setStagingMessage('')
+    } finally {
+      isSwitchingRef.current = false
     }
   }
 
@@ -1277,8 +1348,10 @@ export default function PlayerOverlay() {
       style={{ background: 'transparent' }}
       onMouseMove={() => { showControls(); setInteractive(true) }}
     >
-      {/* Opaque black backdrop while mpv loads — prevents see-through transparency */}
-      {buffering && !error && !stagingPhase && (
+      {/* Opaque black backdrop while mpv loads — prevents see-through transparency.
+          Suppressed during episode switches so the previous episode's frozen
+          frame stays visible underneath the top status banner. */}
+      {buffering && !error && !switchTarget && (
         <div className="absolute inset-0 bg-black flex items-center justify-center pointer-events-none">
           <div className="w-16 h-16 rounded-full bg-black/40 flex items-center justify-center">
             <Loader2 size={36} className="text-white/80 animate-spin" />
@@ -1286,23 +1359,120 @@ export default function PlayerOverlay() {
         </div>
       )}
 
-      {/* Episode staging overlay — shown when switching to a TMDB-only episode
-          that has to go through the on-demand RD pipeline before mpv can play it. */}
-      {stagingPhase && !error && (
-        <div className="absolute inset-0 bg-black flex items-center justify-center">
-          <div className="bg-[#181818] rounded-xl border border-white/10 shadow-2xl px-6 py-5 w-80 max-w-[90vw]">
-            <div className="flex items-center gap-3 mb-3">
-              <Loader2 size={18} className="text-red-500 animate-spin flex-shrink-0" />
-              <p className="text-sm text-white/90 font-medium">Loading episode</p>
+      {/* Episode-switch status banner — drops down from the top during a
+          switchEpisode() call. Shows pipeline stage + episode being loaded.
+          Error state offers Retry + 5s auto-retry; second failure shows a
+          5s auto-close countdown. Banner clears on first onTime tick of the
+          new file (see mpv.onTime handler). */}
+      {switchTarget && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          className="absolute top-4 left-1/2 -translate-x-1/2 z-[60] w-[28rem] max-w-[90vw]"
+          onMouseEnter={() => setInteractive(true)}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className={`rounded-xl border shadow-2xl px-5 py-4 backdrop-blur-md ${
+            switchPhaseKind === 'fatal' ? 'bg-red-950/85 border-red-500/40' :
+            switchPhaseKind === 'error' ? 'bg-amber-950/85 border-amber-500/40' :
+            'bg-black/85 border-white/15'
+          }`}>
+            <div className="flex items-start gap-3">
+              {switchPhaseKind === 'loading' ? (
+                <Loader2 size={18} className="text-red-500 animate-spin flex-shrink-0 mt-0.5" />
+              ) : (
+                <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${
+                  switchPhaseKind === 'fatal' ? 'bg-red-500' : 'bg-amber-500'
+                }`} />
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-white/50 text-[10px] font-semibold uppercase tracking-wider">
+                  {switchPhaseKind === 'fatal' ? 'Could not load episode' :
+                   switchPhaseKind === 'error' ? 'Failed — retrying' :
+                   'Up Next'}
+                </p>
+                <p className="text-white text-sm font-medium truncate mt-0.5">
+                  S{String(switchTarget.seasonNumber).padStart(2, '0')}E{String(switchTarget.episodeNumber).padStart(2, '0')}
+                  {switchTarget.title ? ` · ${switchTarget.title}` : ''}
+                </p>
+                {switchPhaseKind === 'loading' && (
+                  <p className="text-white/60 text-xs mt-1.5 truncate">
+                    {STAGING_PHASE_LABELS[stagingPhase] || stagingMessage || 'Preparing…'}
+                  </p>
+                )}
+                {(switchPhaseKind === 'error' || switchPhaseKind === 'fatal') && (
+                  <p className="text-white/60 text-xs mt-1.5 break-words line-clamp-2">
+                    {switchError}
+                  </p>
+                )}
+              </div>
             </div>
-            <p className="text-xs text-white/60 leading-relaxed">
-              {STAGING_PHASE_LABELS[stagingPhase] || stagingMessage || 'Preparing…'}
-            </p>
-            <p className="text-[10px] text-white/30 mt-3">
-              Real-Debrid is staging the file. This usually takes a few seconds.
-            </p>
+            {switchPhaseKind === 'error' && (
+              <div className="flex items-center justify-between mt-3 pl-7">
+                <span className="text-amber-200/70 text-xs">
+                  Retrying in {switchCountdown}s…
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    data-focusable
+                    onClick={() => {
+                      setSwitchCountdown(null)
+                      if (switchTarget) switchEpisode(switchTarget, true)
+                    }}
+                    className="px-3 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white text-xs font-medium transition-colors"
+                  >
+                    Retry now
+                  </button>
+                  <button
+                    data-focusable
+                    onClick={() => {
+                      setSwitchTarget(null)
+                      setSwitchPhaseKind(null)
+                      setSwitchError('')
+                      setSwitchAttemptCount(0)
+                      setSwitchCountdown(null)
+                      setStagingPhase('')
+                      setStagingMessage('')
+                      switchCompleteRef.current = false
+                    }}
+                    className="px-3 py-1 rounded-md text-white/60 hover:text-white text-xs font-medium transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            {switchPhaseKind === 'fatal' && (
+              <div className="flex items-center justify-between mt-3 pl-7">
+                <span className="text-red-200/70 text-xs">
+                  Closing player in {switchCountdown}s…
+                </span>
+                <button
+                  data-focusable
+                  onClick={() => {
+                    setSwitchTarget(null)
+                    setSwitchPhaseKind(null)
+                    setSwitchError('')
+                    setSwitchAttemptCount(0)
+                    setSwitchCountdown(null)
+                    setStagingPhase('')
+                    setStagingMessage('')
+                    switchCompleteRef.current = false
+                  }}
+                  className="px-3 py-1 rounded-md text-white/60 hover:text-white text-xs font-medium transition-colors"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+            {switchPhaseKind === 'loading' && switchAttemptCount > 1 && (
+              <p className="text-white/30 text-[10px] mt-2 pl-7">
+                Retry attempt {switchAttemptCount}
+              </p>
+            )}
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* Ended overlay */}
@@ -1375,10 +1545,21 @@ export default function PlayerOverlay() {
           <div className="flex items-center gap-3 mt-3">
             <button
               data-focusable data-upnext-play
-              onClick={() => switchEpisode(nextEpisode)}
-              className="flex-1 px-3 py-1.5 bg-white text-black text-xs font-semibold rounded-lg hover:bg-white/90 transition-colors"
+              disabled={upNextConfirmed}
+              onClick={() => {
+                if (upNextConfirmed) return
+                setUpNextConfirmed(true)
+                // 200ms green flash so the click is visibly acknowledged
+                // before the overlay collapses and the top banner appears.
+                setTimeout(() => switchEpisode(nextEpisode), 200)
+              }}
+              className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                upNextConfirmed
+                  ? 'bg-green-500 text-white cursor-default'
+                  : 'bg-white text-black hover:bg-white/90'
+              }`}
             >
-              Play Now
+              {upNextConfirmed ? 'Loading…' : 'Play Now'}
             </button>
             <span className="text-white/30 text-xs tabular-nums">
               {Math.max(0, Math.ceil(effectiveDuration - time))}s
