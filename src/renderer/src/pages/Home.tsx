@@ -142,7 +142,7 @@ export default function Home() {
   }, [isOpen])
 
   // Auto-refresh continue watching every 20s so progress from other
-  // devices (Android, TV, Connect remote) shows up without a page reload.
+  // devices (Android, TV) shows up without a page reload.
   useEffect(() => {
     const id = setInterval(() => {
       api.getContinueWatching()

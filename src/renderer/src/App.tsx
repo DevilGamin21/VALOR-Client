@@ -4,7 +4,6 @@ import { PlayerProvider } from '@/contexts/PlayerContext'
 import { GamepadNavProvider } from '@/contexts/GamepadNavContext'
 import { WatchlistProvider } from '@/contexts/WatchlistContext'
 import { SettingsProvider } from '@/contexts/SettingsContext'
-import { ConnectProvider } from '@/contexts/ConnectContext'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import RootShell from '@/components/RootShell'
 import Login from '@/pages/Login'
@@ -16,7 +15,6 @@ import Profile from '@/pages/Profile'
 import Admin from '@/pages/Admin'
 import Settings from '@/pages/Settings'
 import Discover from '@/pages/Discover'
-import Connect from '@/pages/Connect'
 import PlayerOverlay from '@/pages/PlayerOverlay'
 
 function AppShell() {
@@ -34,28 +32,25 @@ export default function App() {
         <SettingsProvider>
           <PlayerProvider>
             <GamepadNavProvider>
-            <ConnectProvider>
-            <WatchlistProvider>
-              <Routes>
-                <Route path="/login" element={<Login />} />
-                {/* mpv overlay — rendered in a separate transparent BrowserWindow */}
-                <Route path="/player-overlay" element={<PlayerOverlay />} />
-                <Route path="/" element={<AppShell />}>
-                  <Route index element={<Navigate to="/home" replace />} />
-                  <Route path="home" element={<Home />} />
-                  <Route path="movies" element={<Movies />} />
-                  <Route path="tv" element={<TV />} />
-                  <Route path="watchlist" element={<Watchlist />} />
-                  <Route path="discover" element={<Discover />} />
-                  <Route path="connect" element={<Connect />} />
-                  <Route path="profile" element={<Profile />} />
-                  <Route path="admin" element={<Admin />} />
-                  <Route path="settings" element={<Settings />} />
-                </Route>
-                <Route path="*" element={<Navigate to="/home" replace />} />
-              </Routes>
-            </WatchlistProvider>
-            </ConnectProvider>
+              <WatchlistProvider>
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  {/* mpv overlay — rendered in a separate transparent BrowserWindow */}
+                  <Route path="/player-overlay" element={<PlayerOverlay />} />
+                  <Route path="/" element={<AppShell />}>
+                    <Route index element={<Navigate to="/home" replace />} />
+                    <Route path="home" element={<Home />} />
+                    <Route path="movies" element={<Movies />} />
+                    <Route path="tv" element={<TV />} />
+                    <Route path="watchlist" element={<Watchlist />} />
+                    <Route path="discover" element={<Discover />} />
+                    <Route path="profile" element={<Profile />} />
+                    <Route path="admin" element={<Admin />} />
+                    <Route path="settings" element={<Settings />} />
+                  </Route>
+                  <Route path="*" element={<Navigate to="/home" replace />} />
+                </Routes>
+              </WatchlistProvider>
             </GamepadNavProvider>
           </PlayerProvider>
         </SettingsProvider>

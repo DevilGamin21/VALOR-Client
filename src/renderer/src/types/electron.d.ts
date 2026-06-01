@@ -81,7 +81,6 @@ declare global {
       }
       system: {
         sleep: () => Promise<void>
-        hostname: () => Promise<string>
         platform: () => Promise<string>
       }
       discord: {

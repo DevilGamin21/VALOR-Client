@@ -1,11 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Play, Plus, Check, Loader2, Lock, MoreHorizontal, Eye, EyeOff, Star, Cast } from 'lucide-react'
+import { X, Play, Plus, Check, Loader2, Lock, MoreHorizontal, Eye, EyeOff, Star } from 'lucide-react'
 import * as api from '@/services/api'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useWatchlist } from '@/contexts/WatchlistContext'
 import { useAuth } from '@/contexts/AuthContext'
-import { useConnect } from '@/contexts/ConnectContext'
 import { useSettings, QUALITY_BITRATES } from '@/contexts/SettingsContext'
 import type { UnifiedMedia, PlayJob, Season, Episode, EpisodeInfo } from '@/types/media'
 
@@ -62,11 +61,9 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
   const { openPlayer } = usePlayer()
   const { ids, toggle } = useWatchlist()
   const { user } = useAuth()
-  const connectCtx = useConnect()
   const { directPlay: directPlaySetting, playerEngine, defaultQuality, preferredAudioLang, preferredSubtitleLang } = useSettings()
   const isPremium = user?.isPremium || user?.role === 'admin'
   const inWatchlist = ids.has(item.id)
-  const hasRemoteTarget = !!connectCtx?.targetDevice
 
   const [tmdbSeasons, setTmdbSeasons] = useState<api.TmdbSeason[]>([])
   const [jellyfinSeasons, setJellyfinSeasons] = useState<Season[]>([])
@@ -429,19 +426,6 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
       return
     }
     if (item.type === 'movie' && item.source !== 'jellyfin' && digitalRelease?.isReleased !== true) return
-    // Remote play: send to target device instead of playing locally
-    if (hasRemoteTarget && connectCtx) {
-      connectCtx.playOnTarget({
-        tmdbId: item.tmdbId,
-        type: item.type,
-        title: item.title,
-        year: item.year ?? undefined,
-        startPositionTicks: startTicks > 0 ? startTicks : undefined,
-        isAnime: item.isAnime,
-      })
-      onClose()
-      return
-    }
     setLoadingPlay(true)
     setError('')
     pendingResumeRef.current = startTicks
@@ -489,23 +473,6 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
   async function playEpisodeImpl(ep: MergedEpisode, startTicks = 0) {
     if (!item.tmdbId) {
       setError('Cannot play — missing TMDB ID')
-      return
-    }
-    // Remote play: send to target device
-    if (hasRemoteTarget && connectCtx) {
-      connectCtx.playOnTarget({
-        tmdbId: item.tmdbId,
-        type: 'tv',
-        title: item.title,
-        year: item.year ?? undefined,
-        season: ep.seasonNumber,
-        episode: ep.episodeNumber,
-        canonicalSeason: ep.canonicalSeasonNumber,
-        canonicalEpisode: ep.canonicalEpisodeNumber,
-        startPositionTicks: startTicks > 0 ? startTicks : undefined,
-        isAnime: item.isAnime,
-      })
-      onClose()
       return
     }
     setLoadingPlay(true)
@@ -876,8 +843,8 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
                   className="flex-[2] flex items-center justify-center gap-2 py-3 rounded-xl
                              bg-red-600 hover:bg-red-500 text-white font-semibold text-sm transition disabled:opacity-50"
                 >
-                  {loadingPlay ? <Loader2 size={16} className="animate-spin" /> : hasRemoteTarget ? <Cast size={16} /> : <Play size={16} fill="white" />}
-                  {hasRemoteTarget ? `Play on ${connectCtx?.targetDevice?.deviceName}` : 'Play'}
+                  {loadingPlay ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} fill="white" />}
+                  Play
                 </button>
               )}
 

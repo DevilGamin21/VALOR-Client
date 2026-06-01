@@ -291,7 +291,6 @@ ipcMain.handle('system:sleep', () => {
   }
 })
 
-ipcMain.handle('system:hostname', () => require('os').hostname())
 ipcMain.handle('system:platform', () => process.platform)
 
 // ─── Discord IPC ──────────────────────────────────────────────────────────────

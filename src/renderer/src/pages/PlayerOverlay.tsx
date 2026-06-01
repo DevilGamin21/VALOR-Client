@@ -442,7 +442,7 @@ export default function PlayerOverlay() {
   // Refires when the current episode's season changes — otherwise the picker
   // would keep showing the previous season after a cross-season jump. Also
   // refires when there's no list yet for the current season (initial mount or
-  // when PlayModal didn't pre-populate, e.g. resume from Home / Connect).
+  // when PlayModal didn't pre-populate, e.g. resume from Home).
   useEffect(() => {
     if (!job || job.type !== 'tv' || !job.tmdbId) return
     const seasonNum = job.seasonNumber

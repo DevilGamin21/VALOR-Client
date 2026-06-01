@@ -26,7 +26,6 @@ import type { OsSubtitleResult } from '@/services/api'
 import { API_BASE } from '@/services/api'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useSettings, QUALITY_BITRATES, type SubtitleSize } from '@/contexts/SettingsContext'
-import { useConnect } from '@/contexts/ConnectContext'
 import { useGamepad } from '@/hooks/useGamepad'
 
 interface Props {
@@ -93,7 +92,6 @@ const SUBTITLE_FONT_SIZE: Record<SubtitleSize, string> = {
 export default function VideoPlayer({ job, startPositionTicks, onClose }: Props) {
   const { episodeList, currentEpisodeId, updateJob, setEpisodeList, setCurrentEpisodeId } = usePlayer()
   const { autoplayNext, preferredAudioLang, preferredSubtitleLang, directPlay: settingsDirectPlay, defaultQuality, subtitleSize, subtitleBgOpacity, discordRPC } = useSettings()
-  const connectCtx = useConnect()
 
   const isDirectPlay = !!job.directStreamUrl
 
@@ -606,90 +604,6 @@ export default function VideoPlayer({ job, startPositionTicks, onClose }: Props)
       }
     }
   }, [job.title, job.seriesName, job.posterUrl, currentEpisodeId, episodeList])
-
-  // ─── Connect: remote command handler ────────────────────────────────────────
-  useEffect(() => {
-    if (!connectCtx?.setCommandHandler) return
-    connectCtx.setCommandHandler((command, payload) => {
-      const video = videoRef.current
-      switch (command) {
-        case 'play': video?.play(); break
-        case 'pause': video?.pause(); break
-        case 'seek':
-          if (video && typeof payload.positionSeconds === 'number') video.currentTime = payload.positionSeconds
-          break
-        case 'setQuality':
-          if (typeof payload.quality === 'string') {
-            const idx = QUALITY_PRESETS.findIndex(q => q.label.toLowerCase() === (payload.quality as string).toLowerCase())
-            if (idx >= 0) switchQuality(QUALITY_PRESETS[idx], idx)
-          }
-          break
-        case 'setAudio':
-          if (typeof payload.audioIndex === 'number') {
-            const track = job.audioTracks.find(t => t.index === payload.audioIndex)
-            if (track) switchAudio(track)
-          }
-          break
-        case 'setSubtitle':
-          if (payload.subtitleIndex === -1 || payload.subtitleIndex === null) {
-            switchSubtitle(null)
-          } else if (typeof payload.subtitleIndex === 'number') {
-            const track = job.subtitleTracks.find(t => t.index === payload.subtitleIndex)
-            if (track) switchSubtitle(track)
-          }
-          break
-        case 'resume':
-          if (video && typeof payload.positionSeconds === 'number') {
-            video.currentTime = payload.positionSeconds
-            video.play()
-          }
-          break
-        case 'getState': connectPushRef.current?.(); break
-      }
-    })
-    return () => { connectCtx.setCommandHandler(null) }
-  }, [connectCtx])
-
-  // ─── Connect: push state every 5s while playing ────────────────────────────
-  const connectPushRef = useRef<(() => void) | null>(null)
-  useEffect(() => {
-    if (!connectCtx?.pushState) return
-    const push = () => {
-      const video = videoRef.current
-      const curEp = episodeList.find(e => e.jellyfinId === currentEpisodeId)
-      connectCtx.pushState({
-        playing: video ? !video.paused : false,
-        positionSeconds: video ? Math.floor(video.currentTime) : 0,
-        durationSeconds: video ? Math.floor(isFinite(video.duration) ? video.duration : (job.durationTicks ?? 0) / 10_000_000) : 0,
-        quality: QUALITY_PRESETS[activeQuality]?.label ?? 'Original',
-        audioTracks: job.audioTracks.map(t => ({
-          index: t.index, label: t.label, language: t.language, active: t.index === activeAudio,
-        })),
-        subtitleTracks: job.subtitleTracks.map(t => ({
-          index: t.index, label: t.label, language: t.language, active: t.index === activeSub, isImageBased: t.isImageBased,
-        })),
-        mediaMeta: {
-          title: job.seriesName || job.title,
-          tmdbId: job.tmdbId,
-          type: job.seriesId ? 'tv' : job.type,
-          seasonNumber: curEp?.seasonNumber ?? job.seasonNumber ?? undefined,
-          episodeNumber: curEp?.episodeNumber ?? job.episodeNumber ?? undefined,
-          posterUrl: job.posterUrl,
-        },
-      })
-    }
-    connectPushRef.current = push
-    push() // push immediately on mount
-    const interval = setInterval(push, 5000)
-    return () => { clearInterval(interval); connectPushRef.current = null }
-  }, [connectCtx, job, activeAudio, activeSub, activeQuality, currentEpisodeId, episodeList])
-
-  // Push idle state on unmount
-  useEffect(() => {
-    return () => {
-      connectCtx?.pushState({ playing: false, mediaMeta: null, positionSeconds: 0, durationSeconds: 0 })
-    }
-  }, [connectCtx])
 
   // ─── Video event handlers ───────────────────────────────────────────────────
 

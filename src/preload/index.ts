@@ -44,7 +44,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   system: {
     sleep: (): Promise<void> => ipcRenderer.invoke('system:sleep'),
-    hostname: (): Promise<string> => ipcRenderer.invoke('system:hostname'),
     platform: (): Promise<string> => ipcRenderer.invoke('system:platform'),
   },
   discord: {
