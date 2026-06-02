@@ -5,6 +5,7 @@ import { Loader2, AlertCircle, ArrowLeft } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import TitleBar from '@/components/TitleBar'
 import ChannelBanner from '@/components/ChannelBanner'
+import ThemeSwitcherFAB from '@/components/ThemeSwitcherFAB'
 
 type Stage = 'idle' | 'submitting' | 'dot' | 'confirmed' | 'success' | 'failure' | 'reverting'
 
@@ -89,10 +90,11 @@ export default function Login() {
   const inputClass = 'w-full rounded-xl bg-black/50 border border-white/[0.08] px-4 py-3 text-sm text-white placeholder-white/15 focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/20 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed'
 
   return (
-    <div className="flex flex-col h-screen bg-[#06060a] overflow-hidden">
+    <div className="flex flex-col h-screen bg-bg overflow-hidden">
       <ChannelBanner />
       {/* Title bar */}
       <TitleBar />
+      <ThemeSwitcherFAB corner="bottom-right" />
 
       <div className="flex-1 relative flex items-center justify-center">
         {/* Background glow blobs */}
@@ -321,7 +323,7 @@ export default function Login() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="fixed inset-0 bg-[#0a0a0a] z-50"
+              className="fixed inset-0 bg-bg z-50"
               transition={{ delay: 0.7, duration: 0.4, ease: 'easeOut' }}
             />
           )}

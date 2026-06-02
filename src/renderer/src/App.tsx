@@ -4,6 +4,7 @@ import { PlayerProvider } from '@/contexts/PlayerContext'
 import { GamepadNavProvider } from '@/contexts/GamepadNavContext'
 import { WatchlistProvider } from '@/contexts/WatchlistContext'
 import { SettingsProvider } from '@/contexts/SettingsContext'
+import { ThemeProvider } from '@/contexts/ThemeContext'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import RootShell from '@/components/RootShell'
 import Login from '@/pages/Login'
@@ -28,6 +29,7 @@ function AppShell() {
 export default function App() {
   return (
     <HashRouter>
+      <ThemeProvider>
       <AuthProvider>
         <SettingsProvider>
           <PlayerProvider>
@@ -55,6 +57,7 @@ export default function App() {
           </PlayerProvider>
         </SettingsProvider>
       </AuthProvider>
+      </ThemeProvider>
     </HashRouter>
   )
 }

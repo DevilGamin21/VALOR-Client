@@ -19,6 +19,7 @@ import TitleBar from './TitleBar'
 import VideoPlayer from './VideoPlayer'
 import UpdateBanner from './UpdateBanner'
 import ChannelBanner from './ChannelBanner'
+import ThemeSwitcherFAB from './ThemeSwitcherFAB'
 import MpvRecommendationModal from './MpvRecommendationModal'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePlayer } from '@/contexts/PlayerContext'
@@ -82,7 +83,7 @@ export default function RootShell() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-[#0a0a0a] overflow-hidden">
+    <div className="flex flex-col h-screen bg-bg overflow-hidden">
       <ChannelBanner />
       <TitleBar />
 
@@ -122,7 +123,7 @@ export default function RootShell() {
                   data-modal-close
                   onClick={() => setShowAccountSwitcher(false)}
                 />
-                <div className="absolute left-16 top-10 bg-[#1a1a1a] border border-white/10 rounded-xl shadow-2xl p-4 min-w-[200px]">
+                <div className="absolute left-16 top-10 bg-elevated border border-line rounded-xl shadow-2xl p-4 min-w-[200px]">
                   {/* Account circles */}
                   <div className="flex items-center gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
                     {accounts.map(acct => (
@@ -289,6 +290,9 @@ export default function RootShell() {
           </main>
         </div>
       </div>
+
+      {/* Floating theme picker — bottom-right corner of the viewport */}
+      <ThemeSwitcherFAB corner="bottom-right" />
 
       {/* Full-screen video player overlay */}
       <AnimatePresence>
