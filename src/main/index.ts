@@ -6,6 +6,16 @@ import { autoUpdater } from 'electron-updater'
 import type { Client as DiscordRpcClient, Presence } from 'discord-rpc'
 import { MpvPlayer, isMpvAvailable } from './mpvPlayer'
 
+// Channel id baked in at build time by electron.vite.config.ts. The
+// __CHANNEL_ID__ global is a literal-string substitution from Vite's define.
+declare const __CHANNEL_ID__: string
+const CHANNEL_ID = __CHANNEL_ID__ as 'stable' | 'seth' | 'brazen'
+// electron-updater channel name. Stable maps to 'latest' so existing
+// installs (which were built before this scheme and look at latest.yml)
+// keep receiving updates without a migration. Non-stable channels each
+// get their own update feed (latest-seth.yml / latest-brazen.yml).
+const UPDATER_CHANNEL = CHANNEL_ID === 'stable' ? 'latest' : CHANNEL_ID
+
 interface AccountEntry {
   id: string
   username: string
@@ -93,6 +103,7 @@ function setupAutoUpdater(): void {
   autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.logger = null
   autoUpdater.allowElevation = false
+  autoUpdater.channel = UPDATER_CHANNEL
 
   cleanPendingUpdates()
 
@@ -146,6 +157,8 @@ function createWindow(): void {
     backgroundColor: '#0a0a0a',
     frame: false,
     icon: appIcon,
+    // Taskbar / alt-tab cue for testers on non-stable builds.
+    title: CHANNEL_ID === 'stable' ? 'VALOR' : `VALOR — ${CHANNEL_ID}`,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -292,6 +305,12 @@ ipcMain.handle('system:sleep', () => {
 })
 
 ipcMain.handle('system:platform', () => process.platform)
+
+// Open arbitrary URL in the user's default browser. Used by the channel
+// banner's "Back to stable" button to send the user to the GitHub releases
+// page. URL validation happens client-side — the renderer only passes
+// the hardcoded STABLE_DOWNLOAD_URL constant today.
+ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url))
 
 // ─── Discord IPC ──────────────────────────────────────────────────────────────
 ipcMain.handle('discord:setActivity', async (_e, activity: Presence) => {

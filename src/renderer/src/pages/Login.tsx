@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Loader2, AlertCircle, ArrowLeft } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import TitleBar from '@/components/TitleBar'
+import ChannelBanner from '@/components/ChannelBanner'
 
 type Stage = 'idle' | 'submitting' | 'dot' | 'confirmed' | 'success' | 'failure' | 'reverting'
 
@@ -89,6 +90,7 @@ export default function Login() {
 
   return (
     <div className="flex flex-col h-screen bg-[#06060a] overflow-hidden">
+      <ChannelBanner />
       {/* Title bar */}
       <TitleBar />
 

@@ -3,22 +3,29 @@
  * build.mjs — VALOR Cross-Platform Build Pipeline
  *
  * Usage:
- *   node scripts/build.mjs [patch|minor|major|none] [--platform win|linux] [--release]
+ *   node scripts/build.mjs [patch|minor|major|none] [--platform win|linux]
+ *                          [--channel stable|seth|brazen] [--release]
  *
  *   patch    (default) increment patch version  e.g. 0.1.0 → 0.1.1
  *   minor              increment minor version  e.g. 0.1.0 → 0.2.0
  *   major              increment major version  e.g. 0.1.0 → 1.0.0
  *   none               skip version bump
  *
- *   --platform win|linux   target platform (default: auto-detect from OS)
- *   --release              also upload artifacts to GitHub Releases
- *                          (requires GH_TOKEN env variable)
+ *   --platform win|linux           target platform (default: auto-detect)
+ *   --channel  stable|seth|brazen  release channel (default: stable). Each
+ *                                  channel bakes its own API hostname,
+ *                                  installer suffix, and update feed.
+ *   --release                      also upload artifacts to GitHub Releases
+ *                                  (requires GH_TOKEN env variable)
  *
  * npm script shortcuts (package.json):
- *   npm run build:win           → patch bump, Windows, local only
- *   npm run build:linux         → patch bump, Linux, local only
- *   npm run release:win         → patch bump, Windows + upload
- *   npm run release:linux       → patch bump, Linux + upload
+ *   npm run build:win           → patch bump, Windows, stable, local
+ *   npm run build:win:seth      → patch bump, Windows, seth,   local
+ *   npm run build:win:brazen    → patch bump, Windows, brazen, local
+ *   npm run release:win         → patch bump, Windows, stable + upload
+ *   npm run release:win:seth    → patch bump, Windows, seth   + upload
+ *   npm run release:win:brazen  → patch bump, Windows, brazen + upload
+ *   (Linux equivalents: build:linux, release:linux, plus :seth / :brazen)
  */
 
 import { execSync }                              from 'child_process'
@@ -76,6 +83,18 @@ if (!['win', 'linux', 'mac'].includes(platform)) {
   die(`Unknown platform "${platform}". Use win, linux, or mac.`)
 }
 
+// Channel: --channel <id>, default 'stable'. Drives:
+//   - VALOR_CHANNEL          → vite define for renderer + main bundle
+//   - VALOR_UPDATER_CHANNEL  → electron-builder publish.channel (yml)
+//   - VALOR_CHANNEL_SUFFIX   → artifactName suffix (yml)
+//   - VALOR_RELEASE_TYPE     → release vs prerelease on GitHub (yml)
+const CHANNELS  = ['stable', 'seth', 'brazen']
+const channelIdx = args.indexOf('--channel')
+const channel    = channelIdx >= 0 && args[channelIdx + 1] ? args[channelIdx + 1] : 'stable'
+if (!CHANNELS.includes(channel)) {
+  die(`Unknown channel "${channel}". Use one of: ${CHANNELS.join(', ')}.`)
+}
+
 // Cross-compiling Linux AppImage from Windows requires symlink privileges.
 // If you don't have Developer Mode or admin rights, use GitHub Actions CI instead.
 if (platform === 'linux' && process.platform === 'win32') {
@@ -90,6 +109,7 @@ const isWin   = platform === 'win'
 const isLinux = platform === 'linux'
 
 const platformLabel = { win: 'Windows', linux: 'Linux', mac: 'macOS' }[platform]
+const channelLabel  = { stable: 'Stable', seth: 'Soak (seth)', brazen: 'Beta (brazen)' }[channel]
 
 // ─── Banner ───────────────────────────────────────────────────────────────────
 print('')
@@ -106,7 +126,18 @@ print(`${DIM}  ─────────────────────�
 const prevVersion = readPkg().version
 print(`${DIM}  Mode     : ${bumpType}${release ? ' + release upload' : ' (local only)'}${RST}`)
 print(`${DIM}  Platform : ${platformLabel}${RST}`)
+print(`${DIM}  Channel  : ${channelLabel}${RST}`)
 print(`${DIM}  Version  : ${prevVersion}${RST}`)
+
+// ─── Channel env vars (consumed by vite define + electron-builder.yml) ────────
+// Stable keeps the original electron-updater channel name ('latest') so existing
+// installs — which were built before this scheme — keep finding their update
+// feed without a migration. Non-stable channels each get their own feed and
+// are marked prerelease so GitHub /releases/latest stays on the stable build.
+process.env.VALOR_CHANNEL          = channel
+process.env.VALOR_UPDATER_CHANNEL  = channel === 'stable' ? 'latest' : channel
+process.env.VALOR_CHANNEL_SUFFIX   = channel === 'stable' ? '' : `-${channel}`
+process.env.VALOR_RELEASE_TYPE     = channel === 'stable' ? 'release' : 'prerelease'
 
 // ─── Disable code signing (no cert; avoids Authenticode signing) ──────────────
 process.env.CSC_IDENTITY_AUTO_DISCOVERY = 'false'
@@ -198,19 +229,25 @@ step(++stepNum, TOTAL, `Packaging ${platformLabel} artifacts  ${DIM}(${publishFl
 if (isWin) ensureWinCodeSign()
 run(`npx electron-builder --${platform} ${publishFlag}`, `${platformLabel} artifacts packaged`)
 
+// Channel-suffixed artifact + update feed names (matches electron-builder.yml).
+const suffix       = process.env.VALOR_CHANNEL_SUFFIX                 // '' | '-seth' | '-brazen'
+const updaterChan  = process.env.VALOR_UPDATER_CHANNEL                // 'latest' | 'seth' | 'brazen'
+const winFeed      = updaterChan === 'latest' ? 'latest.yml'       : `latest-${updaterChan}.yml`
+const linuxFeed    = updaterChan === 'latest' ? 'latest-linux.yml' : `latest-linux-${updaterChan}.yml`
+
 // ── Step (release only): Upload confirmation ─────────────────────────────────
 if (release) {
   step(++stepNum, TOTAL, 'Published to GitHub Releases')
   const v = readPkg().version
   ok(`GitHub Release → https://github.com/DevilGamin21/VALOR-Client/releases/tag/v${v}`)
   if (isWin) {
-    ok(`Installer      → VALOR-Setup.exe (attached to release)`)
-    ok(`Update feed    → latest.yml (attached to release)`)
+    ok(`Installer      → VALOR-Setup${suffix}.exe (attached to release)`)
+    ok(`Update feed    → ${winFeed} (attached to release)`)
   }
   if (isLinux) {
-    ok(`AppImage       → VALOR-Setup.AppImage (attached to release)`)
-    ok(`Deb package    → VALOR-Setup.deb (attached to release)`)
-    ok(`Update feed    → latest-linux.yml (attached to release)`)
+    ok(`AppImage       → VALOR-Setup${suffix}.AppImage (attached to release)`)
+    ok(`Deb package    → VALOR-Setup${suffix}.deb (attached to release)`)
+    ok(`Update feed    → ${linuxFeed} (attached to release)`)
   }
 }
 
@@ -219,17 +256,21 @@ const finalVersion = readPkg().version
 print('')
 print(`${G}${B}  ✓ Build complete!${RST}`)
 print(`${DIM}  Version  : ${finalVersion}${RST}`)
+print(`${DIM}  Channel  : ${channelLabel}${RST}`)
 print(`${DIM}  Platform : ${platformLabel}${RST}`)
 if (isWin) {
-  print(`${DIM}  Artifact : dist/VALOR-Setup.exe${RST}`)
+  print(`${DIM}  Artifact : dist/VALOR-Setup${suffix}.exe${RST}`)
 }
 if (isLinux) {
-  print(`${DIM}  Artifacts: dist/VALOR-Setup.AppImage${RST}`)
-  print(`${DIM}             dist/VALOR-Setup.deb${RST}`)
+  print(`${DIM}  Artifacts: dist/VALOR-Setup${suffix}.AppImage${RST}`)
+  print(`${DIM}             dist/VALOR-Setup${suffix}.deb${RST}`)
 }
 if (!release) {
   print('')
   print(`${DIM}  To publish this build to the update channel, run:${RST}`)
-  print(`${DIM}    npm run release:${platform === 'win' ? 'win' : 'linux'}${RST}`)
+  const releaseScript = channel === 'stable'
+    ? `release:${platform === 'win' ? 'win' : 'linux'}`
+    : `release:${platform === 'win' ? 'win' : 'linux'}:${channel}`
+  print(`${DIM}    npm run ${releaseScript}${RST}`)
 }
 print('')

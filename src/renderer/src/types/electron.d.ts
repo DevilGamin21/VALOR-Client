@@ -83,6 +83,9 @@ declare global {
         sleep: () => Promise<void>
         platform: () => Promise<string>
       }
+      shell: {
+        openExternal: (url: string) => Promise<void>
+      }
       discord: {
         setActivity: (activity: DiscordActivity) => Promise<void>
         clearActivity: () => Promise<void>

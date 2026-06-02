@@ -9,13 +9,14 @@ import type {
   AudioTrack,
   SubtitleTrack,
 } from '@/types/media'
+import { CHANNEL } from '@/lib/channelConfig'
 
-export const API_BASE = 'https://apiv.dawn-star.co.uk'
+export const API_BASE = CHANNEL.apiBase
 
 // ─── Avatar URL helper ────────────────────────────────────────────────────────
 // The backend stores avatar paths as "/api/avatars/file.jpg" (Next.js proxy path).
 // On the desktop client we call the backend directly, so we rewrite to
-// "https://apiv.dawn-star.co.uk/avatars/file.jpg" (backend serves /avatars/ statically).
+// "<API_BASE>/avatars/file.jpg" (backend serves /avatars/ statically).
 export function resolveAvatarUrl(url: string | null | undefined): string | null {
   if (!url) return null
   if (/^https?:\/\//i.test(url)) return url          // already absolute

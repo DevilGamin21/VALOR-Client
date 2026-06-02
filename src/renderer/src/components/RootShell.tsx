@@ -18,6 +18,7 @@ import {
 import TitleBar from './TitleBar'
 import VideoPlayer from './VideoPlayer'
 import UpdateBanner from './UpdateBanner'
+import ChannelBanner from './ChannelBanner'
 import MpvRecommendationModal from './MpvRecommendationModal'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePlayer } from '@/contexts/PlayerContext'
@@ -82,6 +83,7 @@ export default function RootShell() {
 
   return (
     <div className="flex flex-col h-screen bg-[#0a0a0a] overflow-hidden">
+      <ChannelBanner />
       <TitleBar />
 
       <div className="flex flex-1 overflow-hidden">

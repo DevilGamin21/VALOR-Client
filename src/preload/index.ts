@@ -46,6 +46,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     sleep: (): Promise<void> => ipcRenderer.invoke('system:sleep'),
     platform: (): Promise<string> => ipcRenderer.invoke('system:platform'),
   },
+  shell: {
+    openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
+  },
   discord: {
     setActivity: (activity: object): Promise<void> => ipcRenderer.invoke('discord:setActivity', activity),
     clearActivity: (): Promise<void> => ipcRenderer.invoke('discord:clearActivity'),
