@@ -28,10 +28,10 @@
  *   (Linux equivalents: build:linux, release:linux, plus :seth / :brazen)
  */
 
-import { execSync }                              from 'child_process'
-import { readFileSync, existsSync, mkdirSync, unlinkSync } from 'fs'
-import { join, dirname }                        from 'path'
-import { fileURLToPath }                        from 'url'
+import { execSync }                                        from 'child_process'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, unlinkSync } from 'fs'
+import { join, dirname }                                  from 'path'
+import { fileURLToPath }                                  from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root      = join(__dirname, '..')
@@ -191,11 +191,46 @@ function ensureWinCodeSign() {
   }
 }
 
+// ─── Stub register-scheme (transitive dep of discord-rpc) ─────────────────────
+// register-scheme is a native node module that discord-rpc requires inside a
+// try/catch as a fallback for protocol-handler registration. Our Electron env
+// always hits the first branch (app.setAsDefaultProtocolClient), so the module
+// is dead code at runtime. But its `binding.gyp` triggers @electron/rebuild
+// inside electron-builder, which can't cross-compile from Linux to Windows.
+//
+// Stubbing the module into a no-op JS file (and removing binding.gyp +
+// build/) makes @electron/rebuild skip it. Idempotent — safe to run on any
+// platform, before every build. On native Windows builds where rebuild would
+// have succeeded, the stub just saves a few seconds.
+function stubRegisterScheme() {
+  const dir = join(root, 'node_modules', 'register-scheme')
+  if (!existsSync(dir)) return
+  try {
+    writeFileSync(
+      join(dir, 'index.js'),
+      "module.exports = () => false; // stubbed by scripts/build.mjs — see stubRegisterScheme\n"
+    )
+    rmSync(join(dir, 'binding.gyp'), { force: true })
+    rmSync(join(dir, 'build'),       { recursive: true, force: true })
+    const pkgPath = join(dir, 'package.json')
+    if (existsSync(pkgPath)) {
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'))
+      if (pkg.scripts) { delete pkg.scripts.install; delete pkg.scripts.build }
+      delete pkg.gypfile
+      writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n')
+    }
+  } catch (e) {
+    warn(`stubRegisterScheme failed: ${e.message}`)
+  }
+}
+
 // ─── Auto-install deps if node_modules is missing ─────────────────────────────
 if (!existsSync(join(root, 'node_modules'))) {
   print(`\n${Y}  node_modules not found — running npm install first…${RST}\n`)
   run('npm install', 'Dependencies installed')
 }
+
+stubRegisterScheme()
 
 // ─── STEPS ────────────────────────────────────────────────────────────────────
 // Windows: bump → installer assets → compile → package [→ release]
@@ -229,11 +264,8 @@ step(++stepNum, TOTAL, `Packaging ${platformLabel} artifacts  ${DIM}(${publishFl
 if (isWin) ensureWinCodeSign()
 run(`npx electron-builder --${platform} ${publishFlag}`, `${platformLabel} artifacts packaged`)
 
-// Channel-suffixed artifact + update feed names (matches electron-builder.yml).
-const suffix       = process.env.VALOR_CHANNEL_SUFFIX                 // '' | '-seth' | '-brazen'
-const updaterChan  = process.env.VALOR_UPDATER_CHANNEL                // 'latest' | 'seth' | 'brazen'
-const winFeed      = updaterChan === 'latest' ? 'latest.yml'       : `latest-${updaterChan}.yml`
-const linuxFeed    = updaterChan === 'latest' ? 'latest-linux.yml' : `latest-linux-${updaterChan}.yml`
+// Channel-suffixed artifact name (matches electron-builder.js).
+const suffix = process.env.VALOR_CHANNEL_SUFFIX  // '' | '-seth' | '-brazen'
 
 // ── Step (release only): Upload confirmation ─────────────────────────────────
 if (release) {
@@ -242,13 +274,12 @@ if (release) {
   ok(`GitHub Release → https://github.com/DevilGamin21/VALOR-Client/releases/tag/v${v}`)
   if (isWin) {
     ok(`Installer      → VALOR-Setup${suffix}.exe (attached to release)`)
-    ok(`Update feed    → ${winFeed} (attached to release)`)
   }
   if (isLinux) {
     ok(`AppImage       → VALOR-Setup${suffix}.AppImage (attached to release)`)
     ok(`Deb package    → VALOR-Setup${suffix}.deb (attached to release)`)
-    ok(`Update feed    → ${linuxFeed} (attached to release)`)
   }
+  ok(`Update feed    → dist/*.yml (attached to release)`)
 }
 
 // ─── Summary ──────────────────────────────────────────────────────────────────

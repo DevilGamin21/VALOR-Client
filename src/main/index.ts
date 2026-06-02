@@ -13,7 +13,7 @@ const CHANNEL_ID = __CHANNEL_ID__ as 'stable' | 'seth' | 'brazen'
 // electron-updater channel name. Stable maps to 'latest' so existing
 // installs (which were built before this scheme and look at latest.yml)
 // keep receiving updates without a migration. Non-stable channels each
-// get their own update feed (latest-seth.yml / latest-brazen.yml).
+// get their own update feed (seth.yml / brazen.yml).
 const UPDATER_CHANNEL = CHANNEL_ID === 'stable' ? 'latest' : CHANNEL_ID
 
 interface AccountEntry {
