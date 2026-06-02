@@ -371,22 +371,39 @@ ipcMain.handle('channel:setDesired', async (_e, channel: ValorChannel) => {
   }
   store.set('desiredChannel', channel)
 
+  // Always re-pin autoUpdater to the new desired channel, even if it's
+  // the same as the binary's baked channel — the previous click might
+  // have left autoUpdater.channel pointing somewhere else.
+  autoUpdater.channel = channel === 'stable' ? 'latest' : channel
+  autoUpdater.allowDowngrade = (channel !== CHANNEL_ID)
+
   if (channel === CHANNEL_ID) {
-    // Picked our own baked channel — nothing to update across.
     return { switched: false, reason: 'already on this channel' }
   }
 
-  // Reconfigure autoUpdater to point at the target channel's feed and
-  // trigger an immediate check. The existing UpdateBanner flow handles
-  // download progress + install prompt — no relaunch dance needed here.
-  autoUpdater.channel = channel === 'stable' ? 'latest' : channel
-  autoUpdater.allowDowngrade = true
   try {
     const result = await autoUpdater.checkForUpdates()
     if (!result?.updateInfo) {
       return { switched: false, reason: 'no release available on that channel yet' }
     }
-    return { switched: true, version: result.updateInfo.version }
+    const version = result.updateInfo.version
+
+    // electron-updater only fires update-available + auto-downloads when the
+    // remote version is strictly newer (allowDowngrade unlocks downgrades but
+    // NOT same-version swaps). For a cross-channel switch we want the swap
+    // even when the versions match — same appId means NSIS upgrades in place
+    // and the new binary's baked CHANNEL_ID matches the user's desired
+    // channel. So we manually drive the banner + download.
+    mainWindow?.webContents.send('update:available', {
+      version,
+      releaseNotes: (result.updateInfo as { releaseNotes?: string | null }).releaseNotes ?? null,
+    })
+    if (!result.downloadPromise) {
+      autoUpdater.downloadUpdate().catch((err: Error) => {
+        mainWindow?.webContents.send('update:error', err.message)
+      })
+    }
+    return { switched: true, version }
   } catch (e) {
     return { switched: false, reason: (e as Error).message }
   }

@@ -262,7 +262,15 @@ run('npm run build', 'Compile complete')
 const publishFlag = release ? '--publish always' : '--publish never'
 step(++stepNum, TOTAL, `Packaging ${platformLabel} artifacts  ${DIM}(${publishFlag})${RST}…`)
 if (isWin) ensureWinCodeSign()
-run(`npx electron-builder --${platform} ${publishFlag}`, `${platformLabel} artifacts packaged`)
+// Invoke electron-builder via node directly instead of `npx electron-builder`.
+// On the GHA windows-latest runner, the npx route was silently no-op'ing —
+// exit 0, zero stdout, no artifacts produced — which made tag releases ship
+// a Windows-less GitHub release. Going through node bypasses the .cmd shim
+// + PATHEXT resolution dance and gives the same call shape on both OSes.
+// We also pass --config explicitly so there's no auto-detect ambiguity.
+const ebCli = join(root, 'node_modules', 'electron-builder', 'out', 'cli', 'cli.js')
+run(`node "${ebCli}" --${platform} --config electron-builder.js ${publishFlag}`,
+    `${platformLabel} artifacts packaged`)
 
 // Channel-suffixed artifact name (matches electron-builder.js).
 const suffix = process.env.VALOR_CHANNEL_SUFFIX  // '' | '-seth' | '-brazen'
