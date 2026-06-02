@@ -86,6 +86,11 @@ declare global {
       shell: {
         openExternal: (url: string) => Promise<void>
       }
+      channels: {
+        getBaked:    () => Promise<'stable' | 'seth' | 'brazen'>
+        getDesired:  () => Promise<'stable' | 'seth' | 'brazen'>
+        setDesired:  (channel: 'stable' | 'seth' | 'brazen') => Promise<{ switched: boolean; reason?: string; version?: string }>
+      }
       discord: {
         setActivity: (activity: DiscordActivity) => Promise<void>
         clearActivity: () => Promise<void>

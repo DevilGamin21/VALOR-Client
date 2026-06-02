@@ -1,17 +1,30 @@
 name: Release
 
-# Triggered by pushing a version tag (e.g. v0.1.78)
-# Builds Windows + Linux artifacts and uploads to the same GitHub Release.
+# Tag pushes auto-build the stable channel.
+# Non-stable channels (seth / brazen) are cut via workflow_dispatch at the
+# same tag — they upload to the SAME GitHub release but produce their own
+# channel-specific installer + update feed (e.g. VALOR-Setup-brazen.exe +
+# brazen.yml). This lets stable users opt into a non-stable channel via
+# Settings → Release Channel; electron-updater downloads the cross-channel
+# installer and NSIS upgrades in place (same appId).
 on:
   push:
     tags: ['v*']
 
-  # Allow manual trigger from the Actions tab
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to build (e.g. v0.1.78)'
+        description: 'Tag to build (e.g. v0.2.113)'
         required: true
+      channel:
+        description: 'Release channel'
+        required: true
+        default: 'brazen'
+        type: choice
+        options:
+          - stable
+          - seth
+          - brazen
 
 permissions:
   contents: write  # needed to create releases and upload assets
@@ -77,8 +90,9 @@ jobs:
 
       # Build + package + publish to GitHub Releases.
       # Version bump is 'none' because the tag already represents the version
-      # (bumped and committed before tagging).
+      # (bumped and committed before tagging). Channel defaults to stable
+      # when invoked by a tag push; workflow_dispatch can override.
       - name: Build and publish
-        run: node scripts/build.mjs none --platform ${{ matrix.platform }} --release
+        run: node scripts/build.mjs none --platform ${{ matrix.platform }} --channel ${{ github.event.inputs.channel || 'stable' }} --release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

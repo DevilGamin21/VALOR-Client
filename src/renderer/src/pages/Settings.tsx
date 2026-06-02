@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useSettings, detectDirectPlaySupport, type QualityPreset, type SubtitleSize, type PlayerEngine } from '@/contexts/SettingsContext'
-import { Zap, Film, Mic2, Subtitles, SkipForward, RotateCcw, Info, Cpu, CheckCircle2, XCircle, RefreshCw, AlertTriangle, MessageSquare, Monitor } from 'lucide-react'
+import { Zap, Film, Mic2, Subtitles, SkipForward, RotateCcw, Info, Cpu, CheckCircle2, XCircle, RefreshCw, AlertTriangle, MessageSquare, Monitor, GitBranch, Loader2 } from 'lucide-react'
+
+type ValorChannel = 'stable' | 'seth' | 'brazen'
+
+const CHANNEL_OPTIONS: { value: ValorChannel; label: string; desc: string }[] = [
+  { value: 'stable', label: 'Stable',       desc: 'Production. Vetted, recommended for everyone.' },
+  { value: 'seth',   label: 'Soak (seth)',  desc: 'Promoted from beta, baking before going stable.' },
+  { value: 'brazen', label: 'Beta (brazen)', desc: 'New / risky work. Expect rough edges.' },
+]
 
 const QUALITY_OPTIONS: { value: QualityPreset; label: string; desc: string }[] = [
   { value: 'original', label: 'Original', desc: 'No bitrate cap — stream copy when possible' },
@@ -70,9 +78,43 @@ export default function Settings() {
   const [scanning, setScanning] = useState(false)
   const [mpvAvailable, setMpvAvailable] = useState(false)
 
+  // Release channel state. `bakedChannel` is what THIS binary was built as;
+  // `desiredChannel` is what the user has picked. They diverge mid-switch
+  // until the cross-channel installer downloads and applies.
+  const [bakedChannel, setBakedChannel] = useState<ValorChannel>('stable')
+  const [desiredChannel, setDesiredChannel] = useState<ValorChannel>('stable')
+  const [channelSwitching, setChannelSwitching] = useState(false)
+  const [channelMessage, setChannelMessage] = useState<{ kind: 'info' | 'success' | 'error'; text: string } | null>(null)
+
   useEffect(() => {
     window.electronAPI.mpv.isAvailable().then(setMpvAvailable).catch(() => {})
+    window.electronAPI.channels.getBaked().then(setBakedChannel).catch(() => {})
+    window.electronAPI.channels.getDesired().then(setDesiredChannel).catch(() => {})
   }, [])
+
+  async function handleChannelSwitch(target: ValorChannel) {
+    if (target === desiredChannel) return
+    setChannelMessage(null)
+    setChannelSwitching(true)
+    setDesiredChannel(target)
+    try {
+      const res = await window.electronAPI.channels.setDesired(target)
+      if (res.switched) {
+        setChannelMessage({
+          kind: 'success',
+          text: `Downloading ${target} (v${res.version}) — watch the update banner; click install when it's ready.`,
+        })
+      } else if (target === bakedChannel) {
+        setChannelMessage({ kind: 'info', text: `Already running the ${target} channel.` })
+      } else {
+        setChannelMessage({ kind: 'error', text: res.reason ?? 'Could not switch channel.' })
+      }
+    } catch (e) {
+      setChannelMessage({ kind: 'error', text: (e as Error).message })
+    } finally {
+      setChannelSwitching(false)
+    }
+  }
 
   async function handleRescan() {
     setScanning(true)
@@ -353,6 +395,71 @@ export default function Settings() {
               Re-detect hardware
             </button>
           </div>
+      </section>
+
+      {/* ── Release Channel ─────────────────────────────────────────────────── */}
+      <section className="space-y-4">
+        <div className={sectionTitle}>
+          <GitBranch size={13} />
+          <span>Release Channel</span>
+        </div>
+
+        <div className="rounded-xl bg-white/5 border border-white/8 p-4 space-y-3">
+          <div>
+            <p className={`font-medium text-white ${labelSize}`}>Channel</p>
+            <p className={`text-white/45 mt-0.5 ${descSize}`}>
+              Picking a different channel downloads its installer in the background. When the
+              update banner appears, click install — the app upgrades in place to the new
+              channel's binary. Your accounts and preferences are preserved.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {CHANNEL_OPTIONS.map((opt) => (
+              <button
+                data-focusable
+                key={opt.value}
+                onClick={() => handleChannelSwitch(opt.value)}
+                disabled={channelSwitching}
+                className={`text-left px-3 py-2.5 rounded-lg border transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                  desiredChannel === opt.value
+                    ? 'bg-red-600/20 border-red-500/50 text-white'
+                    : 'bg-white/5 border-white/8 text-white/60 hover:bg-white/8 hover:text-white'
+                }`}
+              >
+                <p className="text-sm font-medium flex items-center gap-1.5">
+                  {opt.label}
+                  {bakedChannel === opt.value && (
+                    <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded-full uppercase tracking-wide">
+                      Active
+                    </span>
+                  )}
+                </p>
+                <p className="text-[10px] text-white/40 mt-0.5 leading-tight">{opt.desc}</p>
+              </button>
+            ))}
+          </div>
+          {channelSwitching && (
+            <div className="flex items-center gap-2 text-xs text-white/60">
+              <Loader2 size={13} className="animate-spin flex-shrink-0" />
+              Checking {desiredChannel} feed…
+            </div>
+          )}
+          {channelMessage && !channelSwitching && (
+            <div
+              className={`flex items-start gap-2 text-xs px-3 py-2 rounded-lg border ${
+                channelMessage.kind === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : channelMessage.kind === 'error' ? 'bg-red-500/10 border-red-500/30 text-red-300'
+                : 'bg-white/5 border-white/10 text-white/60'
+              }`}
+            >
+              <Info size={12} className="flex-shrink-0 mt-0.5" />
+              <p>{channelMessage.text}</p>
+            </div>
+          )}
+          <p className="text-[10px] text-white/30">
+            Currently running: <span className="text-white/60 font-medium">{bakedChannel}</span>
+          </p>
+        </div>
       </section>
 
       {/* ── Reset ───────────────────────────────────────────────────────────── */}

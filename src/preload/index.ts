@@ -49,6 +49,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   shell: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
   },
+  channels: {
+    getBaked:    (): Promise<'stable' | 'seth' | 'brazen'> => ipcRenderer.invoke('channel:getBaked'),
+    getDesired:  (): Promise<'stable' | 'seth' | 'brazen'> => ipcRenderer.invoke('channel:getDesired'),
+    setDesired:  (channel: 'stable' | 'seth' | 'brazen'): Promise<{ switched: boolean; reason?: string; version?: string }> =>
+      ipcRenderer.invoke('channel:setDesired', channel),
+  },
   discord: {
     setActivity: (activity: object): Promise<void> => ipcRenderer.invoke('discord:setActivity', activity),
     clearActivity: (): Promise<void> => ipcRenderer.invoke('discord:clearActivity'),

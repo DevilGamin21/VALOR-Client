@@ -22,12 +22,19 @@ interface AccountEntry {
   token: string
   avatarUrl: string | null
 }
+type ValorChannel = 'stable' | 'seth' | 'brazen'
 interface StoreSchema {
   token: string                       // legacy single-token (migrated on first use)
   accounts: AccountEntry[]
   activeAccountId: string | null
+  // null = follow whatever channel this binary was built as. Set by the
+  // user via Settings → Release Channel. If it differs from CHANNEL_ID at
+  // startup the app fetches and installs the cross-channel installer.
+  desiredChannel: ValorChannel | null
 }
-const store = new Store<StoreSchema>({ defaults: { token: '', accounts: [], activeAccountId: null } })
+const store = new Store<StoreSchema>({
+  defaults: { token: '', accounts: [], activeAccountId: null, desiredChannel: null }
+})
 const API_ORIGIN = 'https://valor.dawn-star.co.uk'
 
 let mainWindow: BrowserWindow | null = null
@@ -103,7 +110,18 @@ function setupAutoUpdater(): void {
   autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.logger = null
   autoUpdater.allowElevation = false
-  autoUpdater.channel = UPDATER_CHANNEL
+
+  // Resolve which update feed to poll. If the user picked a non-default
+  // channel via Settings, we follow that (cross-channel installer swap is
+  // how channel switching actually happens — see channel:setDesired IPC).
+  // Otherwise we use the channel baked into this binary.
+  const desired = store.get('desiredChannel') as ValorChannel | null
+  if (desired && desired !== CHANNEL_ID) {
+    autoUpdater.channel = desired === 'stable' ? 'latest' : desired
+    autoUpdater.allowDowngrade = true
+  } else {
+    autoUpdater.channel = UPDATER_CHANNEL
+  }
 
   cleanPendingUpdates()
 
@@ -337,6 +355,42 @@ ipcMain.handle('discord:clearActivity', async () => {
 ipcMain.handle('update:download', () => autoUpdater.downloadUpdate())
 ipcMain.handle('update:install', () => autoUpdater.quitAndInstall(true, true))
 ipcMain.handle('update:check', () => autoUpdater.checkForUpdates().catch(() => {}))
+
+// ─── Channel IPC ──────────────────────────────────────────────────────────────
+// CHANNEL_ID is the channel BAKED into this binary. desiredChannel is what
+// the user picked via Settings. They differ only mid-transition (user clicked
+// Apply, electron-updater is on its way to swapping the binary).
+ipcMain.handle('channel:getBaked', () => CHANNEL_ID)
+ipcMain.handle('channel:getDesired', () => {
+  const desired = store.get('desiredChannel') as ValorChannel | null
+  return desired ?? CHANNEL_ID
+})
+ipcMain.handle('channel:setDesired', async (_e, channel: ValorChannel) => {
+  if (!['stable', 'seth', 'brazen'].includes(channel)) {
+    return { switched: false, reason: 'invalid channel' }
+  }
+  store.set('desiredChannel', channel)
+
+  if (channel === CHANNEL_ID) {
+    // Picked our own baked channel — nothing to update across.
+    return { switched: false, reason: 'already on this channel' }
+  }
+
+  // Reconfigure autoUpdater to point at the target channel's feed and
+  // trigger an immediate check. The existing UpdateBanner flow handles
+  // download progress + install prompt — no relaunch dance needed here.
+  autoUpdater.channel = channel === 'stable' ? 'latest' : channel
+  autoUpdater.allowDowngrade = true
+  try {
+    const result = await autoUpdater.checkForUpdates()
+    if (!result?.updateInfo) {
+      return { switched: false, reason: 'no release available on that channel yet' }
+    }
+    return { switched: true, version: result.updateInfo.version }
+  } catch (e) {
+    return { switched: false, reason: (e as Error).message }
+  }
+})
 
 // ─── Player window system for mpv ───────────────────────────────────────────
 // Architecture:
