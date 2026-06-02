@@ -2,6 +2,249 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ──────────────────────────────────────────────────────────────────────
+ * Theme tokens
+ *
+ * Mirrors the web frontend's /app/globals.css. Every theme-tracking
+ * surface should pull its colour from a CSS variable that resolves
+ * differently per theme. Tailwind utilities (bg-bg, bg-surface,
+ * text-primary, bg-accent, etc.) are wired to these vars in tailwind.config.js.
+ *
+ * Per-user theme picks live in localStorage and override the default.
+ * The default theme is "dark" — set on <html> in index.html so the
+ * variables resolve before React mounts (no FOUC).
+ *
+ * Only the dark-set themes are shipped today (light/purple-haze/beach/
+ * mono-grey were dropped from the web's picker when promoted to main).
+ * The "dynamic" theme is filled in by lib/dynamicTheme.ts at runtime
+ * and is added in a later commit.
+ * ────────────────────────────────────────────────────────────────────── */
+
+:root,
+:root[data-theme="dark"] {
+  --bg-base: #0a0a0a;
+  --bg-surface: #161616;
+  --bg-elevated: #1c1c1f;
+  --bg-input: rgba(0, 0, 0, 0.5);
+
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.7);
+  --text-muted: rgba(255, 255, 255, 0.4);
+
+  --accent: #dc2626;
+  --accent-hover: #ef4444;
+  --accent-soft: rgba(220, 38, 38, 0.15);
+  --accent-fg: #ffffff;
+  --accent-ring: rgba(220, 38, 38, 0.5);
+
+  --border-base: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.2);
+  --ring-hover: rgba(255, 255, 255, 0.8);
+
+  --gradient-page: radial-gradient(circle at 20% 0%, rgba(220, 38, 38, 0.06) 0%, transparent 50%),
+                   radial-gradient(circle at 80% 100%, rgba(99, 102, 241, 0.04) 0%, transparent 50%),
+                   #0a0a0a;
+  --gradient-accent: linear-gradient(135deg, #dc2626, #b91c1c);
+  --gradient-hero: linear-gradient(to top, var(--bg-base) 0%, rgba(10, 10, 10, 0.4) 60%, transparent 100%);
+  --gradient-brand: linear-gradient(135deg, rgba(127, 29, 29, 0.4), rgba(0, 0, 0, 0.6));
+
+  --login-blob-1: rgba(127, 29, 29, 0.4);
+  --login-blob-2: rgba(49, 46, 129, 0.3);
+  --login-blob-3: rgba(127, 29, 29, 0.2);
+}
+
+:root[data-theme="midnight"] {
+  --bg-base: #050816;
+  --bg-surface: #0e1230;
+  --bg-elevated: #141a40;
+  --bg-input: rgba(255, 255, 255, 0.04);
+
+  --text-primary: #f1f5ff;
+  --text-secondary: rgba(241, 245, 255, 0.75);
+  --text-muted: rgba(241, 245, 255, 0.45);
+
+  --accent: #38bdf8;
+  --accent-hover: #7dd3fc;
+  --accent-soft: rgba(56, 189, 248, 0.18);
+  --accent-fg: #06121f;
+  --accent-ring: rgba(56, 189, 248, 0.55);
+
+  --border-base: rgba(165, 180, 252, 0.12);
+  --border-strong: rgba(165, 180, 252, 0.25);
+  --ring-hover: rgba(125, 211, 252, 0.85);
+
+  --gradient-page: radial-gradient(circle at 10% 0%, rgba(56, 189, 248, 0.12) 0%, transparent 55%),
+                   radial-gradient(circle at 90% 100%, rgba(168, 85, 247, 0.12) 0%, transparent 55%),
+                   #050816;
+  --gradient-accent: linear-gradient(135deg, #0ea5e9, #6366f1);
+  --gradient-hero: linear-gradient(to top, var(--bg-base) 0%, rgba(5, 8, 22, 0.5) 60%, transparent 100%);
+  --gradient-brand: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(99, 102, 241, 0.4));
+
+  --login-blob-1: rgba(56, 189, 248, 0.4);
+  --login-blob-2: rgba(99, 102, 241, 0.3);
+  --login-blob-3: rgba(168, 85, 247, 0.25);
+}
+
+:root[data-theme="ocean"] {
+  --bg-base: #021526;
+  --bg-surface: #06283c;
+  --bg-elevated: #0b3a55;
+  --bg-input: rgba(255, 255, 255, 0.04);
+
+  --text-primary: #e8f4ff;
+  --text-secondary: rgba(232, 244, 255, 0.7);
+  --text-muted: rgba(232, 244, 255, 0.42);
+
+  --accent: #2dd4bf;
+  --accent-hover: #5eead4;
+  --accent-soft: rgba(45, 212, 191, 0.18);
+  --accent-fg: #021525;
+  --accent-ring: rgba(45, 212, 191, 0.5);
+
+  --border-base: rgba(94, 234, 212, 0.12);
+  --border-strong: rgba(94, 234, 212, 0.28);
+  --ring-hover: rgba(94, 234, 212, 0.8);
+
+  --gradient-page: radial-gradient(circle at 80% 10%, rgba(45, 212, 191, 0.14) 0%, transparent 55%),
+                   radial-gradient(circle at 10% 90%, rgba(14, 165, 233, 0.16) 0%, transparent 55%),
+                   linear-gradient(180deg, #021526 0%, #032541 100%);
+  --gradient-accent: linear-gradient(135deg, #14b8a6, #06b6d4);
+  --gradient-hero: linear-gradient(to top, var(--bg-base) 0%, rgba(2, 21, 38, 0.5) 60%, transparent 100%);
+  --gradient-brand: linear-gradient(135deg, rgba(45, 212, 191, 0.3), rgba(14, 165, 233, 0.35));
+
+  --login-blob-1: rgba(45, 212, 191, 0.35);
+  --login-blob-2: rgba(14, 165, 233, 0.3);
+  --login-blob-3: rgba(8, 47, 73, 0.4);
+}
+
+:root[data-theme="sunset"] {
+  --bg-base: #1a0824;
+  --bg-surface: #2d0e3a;
+  --bg-elevated: #401450;
+  --bg-input: rgba(255, 255, 255, 0.04);
+
+  --text-primary: #fdf2f8;
+  --text-secondary: rgba(253, 242, 248, 0.72);
+  --text-muted: rgba(253, 242, 248, 0.42);
+
+  --accent: #f472b6;
+  --accent-hover: #f9a8d4;
+  --accent-soft: rgba(244, 114, 182, 0.18);
+  --accent-fg: #1a0824;
+  --accent-ring: rgba(244, 114, 182, 0.55);
+
+  --border-base: rgba(244, 114, 182, 0.14);
+  --border-strong: rgba(244, 114, 182, 0.3);
+  --ring-hover: rgba(249, 168, 212, 0.85);
+
+  --gradient-page: radial-gradient(ellipse at 50% 100%, rgba(251, 146, 60, 0.35) 0%, transparent 55%),
+                   radial-gradient(circle at 0% 0%, rgba(244, 114, 182, 0.22) 0%, transparent 55%),
+                   linear-gradient(180deg, #1a0824 0%, #3b0a4d 100%);
+  --gradient-accent: linear-gradient(135deg, #f97316, #f472b6);
+  --gradient-hero: linear-gradient(to top, var(--bg-base) 0%, rgba(26, 8, 36, 0.5) 60%, transparent 100%);
+  --gradient-brand: linear-gradient(135deg, rgba(244, 114, 182, 0.4), rgba(251, 146, 60, 0.45));
+
+  --login-blob-1: rgba(251, 146, 60, 0.4);
+  --login-blob-2: rgba(244, 114, 182, 0.32);
+  --login-blob-3: rgba(168, 85, 247, 0.25);
+}
+
+:root[data-theme="halloween"] {
+  --bg-base: #0a0506;
+  --bg-surface: #1a0d10;
+  --bg-elevated: #261216;
+  --bg-input: rgba(0, 0, 0, 0.4);
+
+  --text-primary: #fed7aa;
+  --text-secondary: rgba(254, 215, 170, 0.72);
+  --text-muted: rgba(254, 215, 170, 0.4);
+
+  --accent: #ea580c;
+  --accent-hover: #f97316;
+  --accent-soft: rgba(234, 88, 12, 0.18);
+  --accent-fg: #0a0506;
+  --accent-ring: rgba(234, 88, 12, 0.55);
+
+  --border-base: rgba(234, 88, 12, 0.14);
+  --border-strong: rgba(234, 88, 12, 0.3);
+  --ring-hover: rgba(249, 115, 22, 0.85);
+
+  --gradient-page: radial-gradient(circle at 20% 0%, rgba(234, 88, 12, 0.18) 0%, transparent 55%),
+                   radial-gradient(circle at 80% 100%, rgba(126, 34, 206, 0.18) 0%, transparent 55%),
+                   #0a0506;
+  --gradient-accent: linear-gradient(135deg, #ea580c, #7e22ce);
+  --gradient-hero: linear-gradient(to top, var(--bg-base) 0%, rgba(10, 5, 6, 0.55) 60%, transparent 100%);
+  --gradient-brand: linear-gradient(135deg, rgba(234, 88, 12, 0.4), rgba(126, 34, 206, 0.5));
+
+  --login-blob-1: rgba(234, 88, 12, 0.45);
+  --login-blob-2: rgba(126, 34, 206, 0.35);
+  --login-blob-3: rgba(180, 30, 0, 0.25);
+}
+
+:root[data-theme="christmas"] {
+  --bg-base: #07120c;
+  --bg-surface: #102018;
+  --bg-elevated: #15291f;
+  --bg-input: rgba(0, 0, 0, 0.4);
+
+  --text-primary: #fef3c7;
+  --text-secondary: rgba(254, 243, 199, 0.72);
+  --text-muted: rgba(254, 243, 199, 0.45);
+
+  --accent: #dc2626;
+  --accent-hover: #ef4444;
+  --accent-soft: rgba(220, 38, 38, 0.18);
+  --accent-fg: #fef3c7;
+  --accent-ring: rgba(220, 38, 38, 0.55);
+
+  --border-base: rgba(34, 197, 94, 0.16);
+  --border-strong: rgba(34, 197, 94, 0.3);
+  --ring-hover: rgba(254, 240, 138, 0.85);
+
+  --gradient-page: radial-gradient(circle at 20% 0%, rgba(220, 38, 38, 0.16) 0%, transparent 55%),
+                   radial-gradient(circle at 80% 100%, rgba(22, 163, 74, 0.18) 0%, transparent 55%),
+                   #07120c;
+  --gradient-accent: linear-gradient(135deg, #dc2626, #16a34a);
+  --gradient-hero: linear-gradient(to top, var(--bg-base) 0%, rgba(7, 18, 12, 0.55) 60%, transparent 100%);
+  --gradient-brand: linear-gradient(135deg, rgba(220, 38, 38, 0.4), rgba(22, 163, 74, 0.45));
+
+  --login-blob-1: rgba(220, 38, 38, 0.4);
+  --login-blob-2: rgba(22, 163, 74, 0.35);
+  --login-blob-3: rgba(254, 240, 138, 0.25);
+}
+
+:root[data-theme="forest"] {
+  --bg-base: #0c1410;
+  --bg-surface: #16241b;
+  --bg-elevated: #1e3027;
+  --bg-input: rgba(0, 0, 0, 0.3);
+
+  --text-primary: #ecfccb;
+  --text-secondary: rgba(236, 252, 203, 0.72);
+  --text-muted: rgba(236, 252, 203, 0.45);
+
+  --accent: #65a30d;
+  --accent-hover: #84cc16;
+  --accent-soft: rgba(101, 163, 13, 0.18);
+  --accent-fg: #0c1410;
+  --accent-ring: rgba(132, 204, 22, 0.55);
+
+  --border-base: rgba(132, 204, 22, 0.14);
+  --border-strong: rgba(132, 204, 22, 0.28);
+  --ring-hover: rgba(190, 242, 100, 0.8);
+
+  --gradient-page: radial-gradient(circle at 10% 10%, rgba(132, 204, 22, 0.14) 0%, transparent 55%),
+                   radial-gradient(circle at 90% 90%, rgba(180, 83, 9, 0.14) 0%, transparent 55%),
+                   #0c1410;
+  --gradient-accent: linear-gradient(135deg, #65a30d, #15803d);
+  --gradient-hero: linear-gradient(to top, var(--bg-base) 0%, rgba(12, 20, 16, 0.55) 60%, transparent 100%);
+  --gradient-brand: linear-gradient(135deg, rgba(101, 163, 13, 0.35), rgba(21, 128, 61, 0.4));
+
+  --login-blob-1: rgba(101, 163, 13, 0.4);
+  --login-blob-2: rgba(180, 83, 9, 0.3);
+  --login-blob-3: rgba(21, 128, 61, 0.3);
+}
+
 @layer base {
   * {
     box-sizing: border-box;
@@ -13,8 +256,8 @@
   body,
   #root {
     height: 100%;
-    background-color: #0a0a0a;
-    color: #ffffff;
+    background-color: var(--bg-base);
+    color: var(--text-primary);
     font-family: 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
