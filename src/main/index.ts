@@ -399,22 +399,27 @@ ipcMain.handle('channel:setDesired', async (_e, channel: ValorChannel) => {
     }
     const version = result.updateInfo.version
 
-    // Cross-channel switch quirk: when the remote version is the same as ours
-    // (or only mildly lower despite allowDowngrade), electron-updater's
-    // isUpdateAvailable returns false → no downloadPromise, AND in some
-    // 6.x release paths the internal updateInfoAndProvider is left in a
-    // state where a follow-up downloadUpdate() throws "Please check update
-    // first". The cleanest workaround is to briefly tell electron-updater
-    // we're at 0.0.0 so the comparison flips to "update available" and the
-    // full download/install pipeline engages. Version is restored before
-    // anything else can read it.
+    // Cross-channel switch at same/lower version: electron-updater's
+    // isUpdateAvailable returns false, which means `this.updateInfoAndProvider`
+    // is never latched and a follow-up downloadUpdate() throws "Please check
+    // update first". To force the full download pipeline, we override
+    // autoUpdater.currentVersion to 0.0.0 so the remote always looks newer.
+    //
+    // Important: AppUpdater's constructor caches the parsed currentVersion in
+    // a class field at module-load time (see AppUpdater.js line 217). It does
+    // NOT re-read app.getVersion() per check. So patching app.getVersion is a
+    // no-op here — we have to write the SemVer field directly. semver is a
+    // transitive dep via electron-updater, safe to require from main.
     if (!result.downloadPromise) {
-      const realGetVersion = app.getVersion.bind(app) as () => string
-      ;(app as { getVersion: () => string }).getVersion = () => '0.0.0'
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const semver = require('semver') as { parse: (s: string) => unknown }
+      const fake = semver.parse('0.0.0')
+      const realCurrent = (autoUpdater as { currentVersion: unknown }).currentVersion
+      ;(autoUpdater as { currentVersion: unknown }).currentVersion = fake
       try {
         result = await autoUpdater.checkForUpdates() ?? result
       } finally {
-        ;(app as { getVersion: () => string }).getVersion = realGetVersion
+        ;(autoUpdater as { currentVersion: unknown }).currentVersion = realCurrent
       }
     }
 
