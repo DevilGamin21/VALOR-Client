@@ -116,12 +116,19 @@ function setupAutoUpdater(): void {
   // how channel switching actually happens — see channel:setDesired IPC).
   // Otherwise we use the channel baked into this binary.
   const desired = store.get('desiredChannel') as ValorChannel | null
-  if (desired && desired !== CHANNEL_ID) {
-    autoUpdater.channel = desired === 'stable' ? 'latest' : desired
+  const effectiveChannel: ValorChannel = desired ?? CHANNEL_ID
+  if (effectiveChannel !== CHANNEL_ID) {
+    autoUpdater.channel = effectiveChannel === 'stable' ? 'latest' : effectiveChannel
     autoUpdater.allowDowngrade = true
   } else {
     autoUpdater.channel = UPDATER_CHANNEL
   }
+  // electron-updater's GH provider hits /releases/latest which by default
+  // skips prereleases. Non-stable releases (seth / brazen) are flagged as
+  // prereleases on GitHub so /releases/latest stays pinned to the most recent
+  // stable — but that means non-stable channel users can't discover their
+  // own newer releases via the default query. Letting prereleases in fixes it.
+  autoUpdater.allowPrerelease = effectiveChannel !== 'stable'
 
   cleanPendingUpdates()
 
@@ -376,33 +383,42 @@ ipcMain.handle('channel:setDesired', async (_e, channel: ValorChannel) => {
   // have left autoUpdater.channel pointing somewhere else.
   autoUpdater.channel = channel === 'stable' ? 'latest' : channel
   autoUpdater.allowDowngrade = (channel !== CHANNEL_ID)
+  autoUpdater.allowPrerelease = channel !== 'stable'
 
   if (channel === CHANNEL_ID) {
     return { switched: false, reason: 'already on this channel' }
   }
 
   try {
-    const result = await autoUpdater.checkForUpdates()
+    let result = await autoUpdater.checkForUpdates()
     if (!result?.updateInfo) {
       return { switched: false, reason: 'no release available on that channel yet' }
     }
     const version = result.updateInfo.version
 
-    // electron-updater only fires update-available + auto-downloads when the
-    // remote version is strictly newer (allowDowngrade unlocks downgrades but
-    // NOT same-version swaps). For a cross-channel switch we want the swap
-    // even when the versions match — same appId means NSIS upgrades in place
-    // and the new binary's baked CHANNEL_ID matches the user's desired
-    // channel. So we manually drive the banner + download.
+    // Cross-channel switch quirk: when the remote version is the same as ours
+    // (or only mildly lower despite allowDowngrade), electron-updater's
+    // isUpdateAvailable returns false → no downloadPromise, AND in some
+    // 6.x release paths the internal updateInfoAndProvider is left in a
+    // state where a follow-up downloadUpdate() throws "Please check update
+    // first". The cleanest workaround is to briefly tell electron-updater
+    // we're at 0.0.0 so the comparison flips to "update available" and the
+    // full download/install pipeline engages. Version is restored before
+    // anything else can read it.
+    if (!result.downloadPromise) {
+      const realGetVersion = app.getVersion.bind(app) as () => string
+      ;(app as { getVersion: () => string }).getVersion = () => '0.0.0'
+      try {
+        result = await autoUpdater.checkForUpdates() ?? result
+      } finally {
+        ;(app as { getVersion: () => string }).getVersion = realGetVersion
+      }
+    }
+
     mainWindow?.webContents.send('update:available', {
       version,
       releaseNotes: (result.updateInfo as { releaseNotes?: string | null }).releaseNotes ?? null,
     })
-    if (!result.downloadPromise) {
-      autoUpdater.downloadUpdate().catch((err: Error) => {
-        mainWindow?.webContents.send('update:error', err.message)
-      })
-    }
     return { switched: true, version }
   } catch (e) {
     return { switched: false, reason: (e as Error).message }

@@ -6,7 +6,10 @@
 //      with all the same CSS variables defined on :root[data-theme="dark"].
 //
 // "dynamic" rebuilds the entire palette at runtime from whichever poster
-// the user last hovered. See lib/dynamicTheme.ts.
+// the user last hovered. See lib/dynamicTheme.ts. Gated to non-stable
+// channels for now — drop the channel guard below when promoting.
+
+import { CHANNEL_ID } from './channelConfig'
 
 export type ThemeMode = 'dark' | 'light'
 
@@ -72,14 +75,20 @@ export const THEMES: ThemeDefinition[] = [
     swatches: ['#0c1410', '#65a30d', '#b45309'],
     blurb: 'Moss + earth, calming greens.',
   },
-  {
-    id: 'dynamic',
-    label: 'Dynamic',
-    mode: 'dark',
-    // Multi-hue swatch to hint "follows whatever you look at".
-    swatches: ['#a855f7', '#dc2626', '#10b981'],
-    blurb: 'Palette follows the hovered poster — fades back when you stop.',
-  },
+  // Dynamic shipped to non-stable channels first while we verify perf + UX.
+  // The lib/dynamicTheme.ts code still ships in the stable bundle but the
+  // picker entry is gated — stable users can't pick it. To promote, swap
+  // the guard for an unconditional push.
+  ...(CHANNEL_ID !== 'stable'
+    ? [{
+        id: 'dynamic',
+        label: 'Dynamic',
+        mode: 'dark' as const,
+        // Multi-hue swatch to hint "follows whatever you look at".
+        swatches: ['#a855f7', '#dc2626', '#10b981'],
+        blurb: 'Palette follows the hovered poster — fades back when you stop.',
+      }]
+    : []),
 ]
 
 export const THEME_IDS = THEMES.map((t) => t.id)
