@@ -111,7 +111,7 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
   const [resolvedSeriesId, setResolvedSeriesId] = useState<string | null>(null)
   const [tmdbPosterUrl, setTmdbPosterUrl] = useState<string | null>(null)
 
-  // ── Check for resume position (movie only) ──────────────────────────────
+  // ── Check for resume position + watched state (movie only) ─────────────
   useEffect(() => {
     if (item.type === 'tv') return
     if (!item.tmdbId) return
@@ -119,15 +119,26 @@ export default function PlayModal({ item, onClose, resumeHint }: Props) {
     if (item.positionTicks && item.positionTicks > 0) {
       setResumeTicks(item.positionTicks)
       setShowResume(true)
-    } else {
-      // Check our progress store for saved position
-      api.getUserProgress(String(item.id)).then((progress) => {
-        if (progress && progress.percent >= 5 && progress.percent < 90) {
-          setResumeTicks(progress.positionTicks)
-          setShowResume(true)
-        }
-      }).catch(() => {})
     }
+    // Always fetch /user-progress to seed both resume position (5–90%) and
+    // the watched flag — Continue Watching now hides watched movies, so
+    // item.playedPercentage isn't a reliable source for the toggle's state.
+    // Backend returns `watched: true` for movies completed via mark-watched
+    // (see commit 2609066 in the backend); fall back to percent ≥ 90 for
+    // items completed by natural playback finish.
+    api.getUserProgress(String(item.id)).then((progress) => {
+      if (!progress) return
+      if (
+        !showResume &&
+        progress.percent >= 5 &&
+        progress.percent < 90 &&
+        (!item.positionTicks || item.positionTicks === 0)
+      ) {
+        setResumeTicks(progress.positionTicks)
+        setShowResume(true)
+      }
+      setMovieWatched(Boolean(progress.watched) || progress.percent >= 90)
+    }).catch(() => {})
     // Fetch TMDB poster for Discord Rich Presence (only if item.id is a real
     // Jellyfin GUID — synthetic "tmdb-movie-N" ids 500 the Jellyfin endpoint).
     const idIsJellyfin = !String(item.id).startsWith('tmdb-')

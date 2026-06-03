@@ -366,11 +366,12 @@ export async function deleteUserProgress(mediaId: string): Promise<void> {
   return request(`/user-progress/${encodeURIComponent(mediaId)}`, { method: 'DELETE' })
 }
 
-/** Check if a specific item has saved progress (for resume prompt). */
+/** Check if a specific item has saved progress (for resume prompt) OR the
+ *  watched flag (for the "Mark watched" toggle's initial state). */
 export async function getUserProgress(
   mediaId: string
-): Promise<{ positionTicks: number; durationTicks: number; percent: number } | null> {
-  const res = await request<{ success: boolean; progress: { positionTicks: number; durationTicks: number; percent: number } | null }>(
+): Promise<{ positionTicks: number; durationTicks: number; percent: number; watched?: boolean } | null> {
+  const res = await request<{ success: boolean; progress: { positionTicks: number; durationTicks: number; percent: number; watched?: boolean } | null }>(
     `/user-progress/${encodeURIComponent(mediaId)}`
   )
   return res.progress ?? null
