@@ -123,12 +123,15 @@ function setupAutoUpdater(): void {
   } else {
     autoUpdater.channel = UPDATER_CHANNEL
   }
-  // electron-updater's GH provider hits /releases/latest which by default
-  // skips prereleases. Non-stable releases (seth / brazen) are flagged as
-  // prereleases on GitHub so /releases/latest stays pinned to the most recent
-  // stable — but that means non-stable channel users can't discover their
-  // own newer releases via the default query. Letting prereleases in fixes it.
-  autoUpdater.allowPrerelease = effectiveChannel !== 'stable'
+  // allowPrerelease deliberately stays false. electron-updater's prerelease
+  // discovery only handles semver-style prerelease tags (v1.0.0-beta.1) — it
+  // matches the prerelease label against autoUpdater.channel. Our channel
+  // ids are bare strings ("brazen"/"seth"), so flipping allowPrerelease on
+  // sends the provider into a code path that finds no matching tag and
+  // throws "No published versions on GitHub". Keeping it false means the
+  // provider hits /releases/latest, which we keep pointed at a release
+  // that carries every channel's yml (every release goes out to all
+  // channels at the same version).
 
   cleanPendingUpdates()
 
@@ -380,10 +383,10 @@ ipcMain.handle('channel:setDesired', async (_e, channel: ValorChannel) => {
 
   // Always re-pin autoUpdater to the new desired channel, even if it's
   // the same as the binary's baked channel — the previous click might
-  // have left autoUpdater.channel pointing somewhere else.
+  // have left autoUpdater.channel pointing somewhere else. allowPrerelease
+  // stays false on purpose (see setupAutoUpdater comment).
   autoUpdater.channel = channel === 'stable' ? 'latest' : channel
   autoUpdater.allowDowngrade = (channel !== CHANNEL_ID)
-  autoUpdater.allowPrerelease = channel !== 'stable'
 
   if (channel === CHANNEL_ID) {
     return { switched: false, reason: 'already on this channel' }
