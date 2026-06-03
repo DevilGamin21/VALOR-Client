@@ -132,12 +132,21 @@ print(`${DIM}  Version  : ${prevVersion}${RST}`)
 // ─── Channel env vars (consumed by vite define + electron-builder.yml) ────────
 // Stable keeps the original electron-updater channel name ('latest') so existing
 // installs — which were built before this scheme — keep finding their update
-// feed without a migration. Non-stable channels each get their own feed and
-// are marked prerelease so GitHub /releases/latest stays on the stable build.
+// feed without a migration. Non-stable channels each get their own feed.
+//
+// All channels publish as 'release' (non-prerelease) on GitHub. We tried
+// marking non-stable as 'prerelease' originally, but electron-updater's
+// GitHubProvider queries /releases/latest which by default skips prereleases
+// → existing brazen/seth clients couldn't auto-discover their own newer
+// releases. Going non-prerelease across the board means stable users who
+// happen to land on a brazen-only release via /releases/latest just hit a
+// 404 fetching latest.yml (suppressed by the updater's error filter) and
+// silently stay put. Trade-off: GitHub's /releases UI shows brazen-only
+// builds as "Latest" while stable lags. Acceptable.
 process.env.VALOR_CHANNEL          = channel
 process.env.VALOR_UPDATER_CHANNEL  = channel === 'stable' ? 'latest' : channel
 process.env.VALOR_CHANNEL_SUFFIX   = channel === 'stable' ? '' : `-${channel}`
-process.env.VALOR_RELEASE_TYPE     = channel === 'stable' ? 'release' : 'prerelease'
+process.env.VALOR_RELEASE_TYPE     = 'release'
 
 // ─── Disable code signing (no cert; avoids Authenticode signing) ──────────────
 process.env.CSC_IDENTITY_AUTO_DISCOVERY = 'false'
