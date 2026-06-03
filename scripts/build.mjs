@@ -268,7 +268,16 @@ step(++stepNum, TOTAL, 'Compiling Electron app…')
 run('npm run build', 'Compile complete')
 
 // ── Step: Package ────────────────────────────────────────────────────────────
-const publishFlag = release ? '--publish always' : '--publish never'
+// Publishing path differs between CI and local runs:
+//   - CI: build only (--publish never). A subsequent workflow step uses
+//     `gh release upload` to push artifacts up. Bypasses electron-builder's
+//     hardcoded 2-hour safety check that blocks publishing to releases
+//     older than 2 hours — which kept biting us when promoting brazen
+//     builds to stable hours/days later.
+//   - Local: keep the existing `--publish always` path so a user running
+//     `npm run release:win` from their box still gets a one-step upload.
+const inCI = process.env.CI === 'true'
+const publishFlag = (release && !inCI) ? '--publish always' : '--publish never'
 step(++stepNum, TOTAL, `Packaging ${platformLabel} artifacts  ${DIM}(${publishFlag})${RST}…`)
 if (isWin) ensureWinCodeSign()
 // Invoke electron-builder via node directly instead of `npx electron-builder`.
@@ -286,17 +295,19 @@ const suffix = process.env.VALOR_CHANNEL_SUFFIX  // '' | '-seth' | '-brazen'
 
 // ── Step (release only): Upload confirmation ─────────────────────────────────
 if (release) {
-  step(++stepNum, TOTAL, 'Published to GitHub Releases')
+  step(++stepNum, TOTAL, inCI
+    ? 'Build complete — CI will upload artifacts via gh release upload'
+    : 'Published to GitHub Releases')
   const v = readPkg().version
-  ok(`GitHub Release → https://github.com/DevilGamin21/VALOR-Client/releases/tag/v${v}`)
+  if (!inCI) ok(`GitHub Release → https://github.com/DevilGamin21/VALOR-Client/releases/tag/v${v}`)
   if (isWin) {
-    ok(`Installer      → VALOR-Setup${suffix}.exe (attached to release)`)
+    ok(`Installer      → VALOR-Setup${suffix}.exe`)
   }
   if (isLinux) {
-    ok(`AppImage       → VALOR-Setup${suffix}.AppImage (attached to release)`)
-    ok(`Deb package    → VALOR-Setup${suffix}.deb (attached to release)`)
+    ok(`AppImage       → VALOR-Setup${suffix}.AppImage`)
+    ok(`Deb package    → VALOR-Setup${suffix}.deb`)
   }
-  ok(`Update feed    → dist/*.yml (attached to release)`)
+  ok(`Update feed    → dist/*.yml`)
 }
 
 // ─── Summary ──────────────────────────────────────────────────────────────────

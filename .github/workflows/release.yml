@@ -88,11 +88,71 @@ jobs:
           rm mpv.7z
           ls -la resources/mpv/mpv.exe resources/mpv/d3dcompiler_43.dll
 
-      # Build + package + publish to GitHub Releases.
-      # Version bump is 'none' because the tag already represents the version
-      # (bumped and committed before tagging). Channel defaults to stable
-      # when invoked by a tag push; workflow_dispatch can override.
-      - name: Build and publish
+      # Build only — no publish from electron-builder. Version bump is 'none'
+      # because the tag already represents the version (bumped and committed
+      # beforehand). Channel defaults to stable when invoked by a tag push;
+      # workflow_dispatch can override. build.mjs reads CI=true and routes
+      # this to `--publish never`; the upload step below handles publishing.
+      - name: Build
         run: node scripts/build.mjs none --platform ${{ matrix.platform }} --channel ${{ github.event.inputs.channel || 'stable' }} --release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Upload via gh CLI instead of electron-builder's GitHub publisher.
+      # electron-builder refuses to publish to a release whose created_at is
+      # older than 2 hours (a safety against accidentally clobbering old
+      # releases). That bit us repeatedly when promoting a brazen build to
+      # stable hours after the brazen artifacts went up. gh release upload
+      # has no such limit — it just talks to the REST API.
+      #
+      # Race note: both platforms run in parallel. If neither has uploaded
+      # yet, we may both try to `gh release create`; the loser hits "already
+      # exists". The `|| true` swallows that. The subsequent upload then
+      # works for both.
+      - name: Upload artifacts to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          REPO="${{ github.repository }}"
+          # Ensure the tag is a real git ref (workflow_dispatch can pass a SHA
+          # as `tag` — gh release create needs an actual tag name. For SHAs we
+          # synthesize "v<version-from-package.json>" since that's what
+          # electron-builder would have used.)
+          if [[ ! "$TAG" =~ ^v[0-9] ]]; then
+            VERSION=$(node -p "require('./package.json').version")
+            TAG="v$VERSION"
+            echo "Resolved SHA dispatch → tag $TAG"
+          fi
+          # Create release if it doesn't exist. Tolerate the race where the
+          # parallel matrix job created it between our check and our create.
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$REPO" \
+              --title "$TAG" \
+              --notes "Auto-published by CI." \
+              --target "${{ github.sha }}" \
+              || gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1
+          fi
+          # Gather artifacts. nullglob so non-matching globs disappear instead
+          # of being passed literally (Linux jobs have no .exe, Windows has no
+          # .deb/.AppImage).
+          shopt -s nullglob
+          files=(
+            dist/VALOR-Setup*.exe
+            dist/VALOR-Setup*.exe.blockmap
+            dist/VALOR-Setup*.AppImage
+            dist/VALOR-Setup*.deb
+            dist/latest*.yml
+            dist/seth*.yml
+            dist/brazen*.yml
+          )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No artifacts found in dist/"
+            ls -la dist/ || true
+            exit 1
+          fi
+          echo "Uploading ${#files[@]} files to $TAG:"
+          printf '  %s\n' "${files[@]}"
+          gh release upload "$TAG" --repo "$REPO" --clobber "${files[@]}"
