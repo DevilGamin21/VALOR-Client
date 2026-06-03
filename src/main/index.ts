@@ -164,8 +164,21 @@ function setupAutoUpdater(): void {
 
   autoUpdater.on('error', (err) => {
     const msg = err.message ?? ''
-    // Suppress benign errors when no update server is configured yet
-    if (msg.includes('404') || msg.includes('ENOTFOUND') || msg.includes('ERR_NAME_NOT_RESOLVED')) return
+    // Suppress benign errors:
+    //   - 404 / ENOTFOUND / ERR_NAME_NOT_RESOLVED: no update server / brazen-only
+    //     release on /releases/latest that doesn't have our channel's yml.
+    //   - "Cannot find <channel>.yml in the latest release artifacts": same as
+    //     above but with the formatted electron-updater error string. Belt-
+    //     and-suspenders since some error variants don't include "404" literal.
+    //   - "No published versions on GitHub": GH provider couldn't find a tag
+    //     matching the channel — also benign when the user just installed.
+    if (
+      msg.includes('404') ||
+      msg.includes('ENOTFOUND') ||
+      msg.includes('ERR_NAME_NOT_RESOLVED') ||
+      msg.includes('Cannot find') ||
+      msg.includes('No published versions')
+    ) return
     mainWindow?.webContents.send('update:error', msg)
   })
 }
