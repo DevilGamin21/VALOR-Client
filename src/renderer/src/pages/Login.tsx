@@ -5,7 +5,6 @@ import { Loader2, AlertCircle, ArrowLeft } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import TitleBar from '@/components/TitleBar'
 import ChannelBanner from '@/components/ChannelBanner'
-import ThemeSwitcherFAB from '@/components/ThemeSwitcherFAB'
 
 type Stage = 'idle' | 'submitting' | 'dot' | 'confirmed' | 'success' | 'failure' | 'reverting'
 
@@ -94,7 +93,6 @@ export default function Login() {
       <ChannelBanner />
       {/* Title bar */}
       <TitleBar />
-      <ThemeSwitcherFAB corner="bottom-right" />
 
       <div className="flex-1 relative flex items-center justify-center">
         {/* Background glow blobs */}

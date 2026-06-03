@@ -19,7 +19,6 @@ import TitleBar from './TitleBar'
 import VideoPlayer from './VideoPlayer'
 import UpdateBanner from './UpdateBanner'
 import ChannelBanner from './ChannelBanner'
-import ThemeSwitcherFAB from './ThemeSwitcherFAB'
 import MpvRecommendationModal from './MpvRecommendationModal'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePlayer } from '@/contexts/PlayerContext'
@@ -290,9 +289,6 @@ export default function RootShell() {
           </main>
         </div>
       </div>
-
-      {/* Floating theme picker — bottom-right corner of the viewport */}
-      <ThemeSwitcherFAB corner="bottom-right" />
 
       {/* Full-screen video player overlay */}
       <AnimatePresence>

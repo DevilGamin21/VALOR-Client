@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
-import { Camera, Save, Loader2, Crown, Clock, AlertTriangle } from 'lucide-react'
+import { Camera, Save, Loader2, Crown, Clock, AlertTriangle, Palette, Check } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import * as api from '@/services/api'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTheme } from '@/contexts/ThemeContext'
+import { THEMES } from '@/lib/themes'
 import type { User } from '@/types/media'
 
 function TierBadge({ user }: { user: User }) {
@@ -61,6 +63,7 @@ function TierBadge({ user }: { user: User }) {
 
 export default function Profile() {
   const { user, refreshUser, logout } = useAuth()
+  const { themeId, setThemeId } = useTheme()
   const navigate = useNavigate()
   const [email, setEmail] = useState(user?.email ?? '')
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl ?? '')
@@ -189,6 +192,48 @@ export default function Profile() {
         {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
         Save Changes
       </button>
+
+      {/* ── Theme ───────────────────────────────────────────────────────────── */}
+      <section className="mt-10">
+        <div className="flex items-center gap-2 mb-4 text-white/60 text-xs font-semibold uppercase tracking-widest">
+          <Palette size={13} />
+          <span>Theme</span>
+        </div>
+        <p className="text-xs text-white/45 mb-3">
+          Applies instantly across the app and is remembered next time you launch. "Dynamic" rebuilds
+          the palette from whichever poster you're hovering.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {THEMES.map((t) => {
+            const active = themeId === t.id
+            return (
+              <button
+                data-focusable
+                key={t.id}
+                onClick={() => setThemeId(t.id)}
+                className={`text-left rounded-lg p-3 border transition ${
+                  active
+                    ? 'border-red-500/50 bg-red-600/15 text-white'
+                    : 'border-white/8 bg-white/[0.03] text-white/60 hover:bg-white/[0.06] hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 mb-2">
+                  {t.swatches.map((c, i) => (
+                    <span
+                      key={i}
+                      className="w-4 h-4 rounded-full border border-black/30 flex-shrink-0"
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                  {active && <Check size={12} className="ml-auto text-red-300 flex-shrink-0" />}
+                </div>
+                <p className="text-sm font-medium leading-tight">{t.label}</p>
+                <p className="text-[10px] text-white/40 mt-0.5 leading-snug">{t.blurb}</p>
+              </button>
+            )
+          })}
+        </div>
+      </section>
     </div>
   )
 }
