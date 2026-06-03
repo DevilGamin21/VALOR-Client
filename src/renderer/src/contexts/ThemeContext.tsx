@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { DEFAULT_THEME_ID, THEME_IDS, THEME_STORAGE_KEY } from '@/lib/themes'
+import { clearDynamicPalette } from '@/lib/dynamicTheme'
 
 type ThemeContextValue = {
   themeId: string
@@ -40,6 +41,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const setThemeId = useCallback((id: string) => {
     if (!THEME_IDS.includes(id)) return
+    // Switching AWAY from dynamic — strip the inline palette overrides
+    // that pulseDynamicTheme wrote to <html>. Otherwise they outlive the
+    // theme switch and beat the new theme's :root[data-theme="…"] block.
+    if (id !== 'dynamic') clearDynamicPalette()
     setThemeIdState(id)
     document.documentElement.setAttribute('data-theme', id)
     try {

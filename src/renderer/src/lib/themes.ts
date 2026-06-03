@@ -5,9 +5,8 @@
 //   2. Add a matching :root[data-theme="<id>"] { … } block in index.css
 //      with all the same CSS variables defined on :root[data-theme="dark"].
 //
-// "dynamic" (palette extracted from hovered poster) is intentionally absent
-// — it lands with the dynamic-theme module, not the picker. Until then,
-// dark stays as the default.
+// "dynamic" rebuilds the entire palette at runtime from whichever poster
+// the user last hovered. See lib/dynamicTheme.ts.
 
 export type ThemeMode = 'dark' | 'light'
 
@@ -72,6 +71,14 @@ export const THEMES: ThemeDefinition[] = [
     mode: 'dark',
     swatches: ['#0c1410', '#65a30d', '#b45309'],
     blurb: 'Moss + earth, calming greens.',
+  },
+  {
+    id: 'dynamic',
+    label: 'Dynamic',
+    mode: 'dark',
+    // Multi-hue swatch to hint "follows whatever you look at".
+    swatches: ['#a855f7', '#dc2626', '#10b981'],
+    blurb: 'Palette follows the hovered poster — fades back when you stop.',
   },
 ]
 

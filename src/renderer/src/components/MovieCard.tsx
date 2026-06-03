@@ -1,6 +1,8 @@
 import { motion } from 'framer-motion'
 import { Play, Plus, Check, X } from 'lucide-react'
 import { useWatchlist } from '@/contexts/WatchlistContext'
+import { useTheme } from '@/contexts/ThemeContext'
+import { pulseDynamicTheme } from '@/lib/dynamicTheme'
 import type { UnifiedMedia } from '@/types/media'
 
 interface Props {
@@ -11,6 +13,7 @@ interface Props {
 
 export default function MovieCard({ item, onPlay, onRemove }: Props) {
   const { ids, toggle } = useWatchlist()
+  const { themeId } = useTheme()
   const inWatchlist = ids.has(item.id)
 
   const watched = item.playedPercentage != null && item.playedPercentage > 90
@@ -31,6 +34,7 @@ export default function MovieCard({ item, onPlay, onRemove }: Props) {
       whileHover={{ scale: 1.05, zIndex: 10 }}
       transition={{ duration: 0.2 }}
       onClick={() => onPlay(item)}
+      onMouseEnter={() => { pulseDynamicTheme(item.posterUrl, themeId).catch(() => {}) }}
     >
       {/* Poster */}
       <div className="relative w-36 h-52 rounded-lg overflow-hidden bg-dark-card">

@@ -245,6 +245,43 @@
   --login-blob-3: rgba(21, 128, 61, 0.3);
 }
 
+/* Dynamic theme — defaults shown until lib/dynamicTheme.ts extracts colours
+   from a hovered poster and overrides every token inline. Indigo / violet
+   mirrors the DEFAULT_TONES constant so the page looks consistent before
+   the first hover AND during the 8s fade-back. */
+:root[data-theme="dynamic"] {
+  --bg-base: #110d20;
+  --bg-surface: #1a1530;
+  --bg-elevated: #221d3f;
+  --bg-input: rgba(99, 102, 241, 0.08);
+
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.72);
+  --text-muted: rgba(255, 255, 255, 0.45);
+
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --accent-soft: rgba(99, 102, 241, 0.18);
+  --accent-fg: #ffffff;
+  --accent-ring: rgba(99, 102, 241, 0.5);
+
+  --border-base: rgba(99, 102, 241, 0.16);
+  --border-strong: rgba(99, 102, 241, 0.3);
+  --ring-hover: rgba(168, 85, 247, 0.65);
+
+  --gradient-page: radial-gradient(ellipse at center, transparent 45%, rgba(0, 0, 0, 0.55) 100%),
+                   radial-gradient(ellipse 110vw 55vh at 50% -5%, rgba(168, 85, 247, 0.5) 0%, transparent 70%),
+                   linear-gradient(to top, #110d20 0%, rgba(99, 102, 241, 0.22) 55%, rgba(168, 85, 247, 0.18) 100%),
+                   #110d20;
+  --gradient-accent: linear-gradient(135deg, #6366f1, #a855f7);
+  --gradient-hero: linear-gradient(to top, #110d20 0%, rgba(0, 0, 0, 0.4) 60%, transparent 100%);
+  --gradient-brand: linear-gradient(135deg, rgba(99, 102, 241, 0.4), rgba(168, 85, 247, 0.55));
+
+  --login-blob-1: rgba(99, 102, 241, 0.4);
+  --login-blob-2: rgba(168, 85, 247, 0.3);
+  --login-blob-3: rgba(99, 102, 241, 0.25);
+}
+
 @layer base {
   * {
     box-sizing: border-box;
