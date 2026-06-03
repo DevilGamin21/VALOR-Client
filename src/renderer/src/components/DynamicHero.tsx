@@ -23,7 +23,12 @@ export default function DynamicHero({ items, onSelect }: Props) {
   const current = heroItems[idx]
 
   return (
-    <div className="relative h-72 mb-8 overflow-hidden">
+    // Hero height was h-72 (288px) — too short for the desktop window. With
+    // object-cover + default center-center, that cropped equal top+bottom
+    // and showed only the middle horizontal band of the backdrop, losing
+    // the focal subject. Bumping to a viewport-relative height with a
+    // floor/cap so it scales with the window but never gets absurd.
+    <div className="relative h-[clamp(360px,55vh,560px)] mb-8 overflow-hidden">
       <AnimatePresence mode="wait">
         <motion.div
           key={idx}
@@ -36,7 +41,10 @@ export default function DynamicHero({ items, onSelect }: Props) {
           <img
             src={current.backdropUrl || current.posterUrl || ''}
             alt={current.title}
-            className="w-full h-full object-cover"
+            // object-top biases the crop toward the image's upper third
+            // (where the subject usually sits in TMDB backdrops) instead
+            // of equal-cropping top + bottom.
+            className="w-full h-full object-cover object-top"
           />
         </motion.div>
       </AnimatePresence>
