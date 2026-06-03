@@ -158,6 +158,14 @@ process.env.WIN_CSC_LINK                = ''
 // If we pre-extract ourselves WITHOUT that flag, the darwin .dylib symlinks are
 // silently skipped, Windows tools are fully extracted, and electron-builder finds
 // the cache directory already present and skips its own download+extraction.
+//
+// Failure-handling note: we mkdir the cache dir BEFORE downloading. If the
+// download then 502s (we saw this once on a brazen build), the function used
+// to just `return`, leaving an empty cache dir behind. electron-builder would
+// then see "cache exists" and skip its own download, then later try to run
+// rcedit-x64.exe from the empty dir and fail packaging with "file does not
+// exist". So both the download and the extraction paths now rmSync the cache
+// dir on error — electron-builder's own download path takes over cleanly.
 function ensureWinCodeSign() {
   const localAppData = process.env.LOCALAPPDATA
   if (!localAppData) return  // not Windows
@@ -175,6 +183,12 @@ function ensureWinCodeSign() {
   const url       = `https://github.com/electron-userland/electron-builder-binaries/releases/download/${WCS_VERSION}/${WCS_VERSION}.7z`
   const sevenZip  = join(root, 'node_modules', '7zip-bin', 'win', 'x64', '7za.exe')
 
+  function cleanupOnFail(label) {
+    try { unlinkSync(tmpFile) } catch { /* ignore */ }
+    try { rmSync(cacheDir, { recursive: true, force: true }) } catch { /* ignore */ }
+    warn(`${label} — removed partial cache; electron-builder will retry the download itself`)
+  }
+
   mkdirSync(cacheDir, { recursive: true })
 
   try {
@@ -183,20 +197,37 @@ function ensureWinCodeSign() {
       { cwd: root, stdio: 'inherit' }
     )
   } catch {
-    warn('Could not download winCodeSign — packaging may fail')
+    cleanupOnFail('Could not download winCodeSign')
     return
   }
 
+  let extractedOk = false
   try {
     // Extract WITHOUT -snl so macOS symlinks are just skipped (not created as real
     // Windows symlinks, which requires elevated privilege).  7-zip exits code 2
     // for the 2 skipped darwin symlinks — that's a warning, not a fatal error.
     execSync(`"${sevenZip}" x -y -bd "${tmpFile}" "-o${cacheDir}"`, { stdio: 'pipe' })
+    extractedOk = true
     ok(`winCodeSign extracted  (macOS .dylib symlinks skipped — not needed on Windows)`)
   } catch {
-    ok(`winCodeSign extracted  (macOS symlinks skipped — continuing)`)
+    // 7-zip exits non-zero for the 2 skipped darwin symlinks. If rcedit-x64.exe
+    // (the file electron-builder actually needs) DID land, that's still a
+    // success. Verify before declaring the extraction good.
+    const rcedit = join(cacheDir, 'rcedit-x64.exe')
+    if (existsSync(rcedit)) {
+      extractedOk = true
+      ok(`winCodeSign extracted  (macOS symlinks skipped — continuing)`)
+    } else {
+      cleanupOnFail('winCodeSign 7z extraction failed')
+    }
   } finally {
     try { unlinkSync(tmpFile) } catch { /* ignore */ }
+  }
+
+  // Belt and suspenders: even if 7-zip exited 0, verify the binary we actually
+  // care about exists. If it doesn't, the cache is a lie — wipe it.
+  if (extractedOk && !existsSync(join(cacheDir, 'rcedit-x64.exe'))) {
+    cleanupOnFail('winCodeSign extracted without rcedit-x64.exe')
   }
 }
 
