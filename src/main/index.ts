@@ -403,19 +403,20 @@ ipcMain.handle('channel:setDesired', async (_e, channel: ValorChannel) => {
     // isUpdateAvailable returns false, which means `this.updateInfoAndProvider`
     // is never latched and a follow-up downloadUpdate() throws "Please check
     // update first". To force the full download pipeline, we override
-    // autoUpdater.currentVersion to 0.0.0 so the remote always looks newer.
+    // autoUpdater.currentVersion to "0.0.0" so the remote always looks newer.
     //
-    // Important: AppUpdater's constructor caches the parsed currentVersion in
-    // a class field at module-load time (see AppUpdater.js line 217). It does
-    // NOT re-read app.getVersion() per check. So patching app.getVersion is a
-    // no-op here — we have to write the SemVer field directly. semver is a
-    // transitive dep via electron-updater, safe to require from main.
+    // Why a plain string instead of a SemVer instance: AppUpdater.isUpdateAvailable
+    // only feeds currentVersion into semver.eq/gt/lt, which all accept strings
+    // and coerce internally. The one place that calls `.format()` on it
+    // (the "not available" log line, AppUpdater.js:405) is behind the
+    // !isUpdateAvailable branch — which we won't enter, because 0.0.0 is
+    // strictly less than any real remote version. Avoiding the SemVer class
+    // means we don't need to ship `semver` as a direct dep just for this:
+    // it's a transitive dep of electron-updater but doesn't get hoisted to
+    // top-level node_modules, so `require('semver')` fails in the asar.
     if (!result.downloadPromise) {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const semver = require('semver') as { parse: (s: string) => unknown }
-      const fake = semver.parse('0.0.0')
       const realCurrent = (autoUpdater as { currentVersion: unknown }).currentVersion
-      ;(autoUpdater as { currentVersion: unknown }).currentVersion = fake
+      ;(autoUpdater as { currentVersion: unknown }).currentVersion = '0.0.0'
       try {
         result = await autoUpdater.checkForUpdates() ?? result
       } finally {
