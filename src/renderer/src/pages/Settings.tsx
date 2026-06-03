@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useSettings, detectDirectPlaySupport, type QualityPreset, type SubtitleSize, type PlayerEngine } from '@/contexts/SettingsContext'
-import { Zap, Film, Mic2, Subtitles, SkipForward, RotateCcw, Info, Cpu, CheckCircle2, XCircle, RefreshCw, AlertTriangle, MessageSquare, Monitor, GitBranch, Loader2 } from 'lucide-react'
+import { useTheme } from '@/contexts/ThemeContext'
+import { THEMES } from '@/lib/themes'
+import { Zap, Film, Mic2, Subtitles, SkipForward, RotateCcw, Info, Cpu, CheckCircle2, XCircle, RefreshCw, AlertTriangle, MessageSquare, Monitor, GitBranch, Loader2, Palette, Check } from 'lucide-react'
 
 type ValorChannel = 'stable' | 'seth' | 'brazen'
 
@@ -75,6 +77,7 @@ export default function Settings() {
     update, reset,
   } = useSettings()
 
+  const { themeId, setThemeId } = useTheme()
   const [scanning, setScanning] = useState(false)
   const [mpvAvailable, setMpvAvailable] = useState(false)
 
@@ -395,6 +398,54 @@ export default function Settings() {
               Re-detect hardware
             </button>
           </div>
+      </section>
+
+      {/* ── Theme ───────────────────────────────────────────────────────────── */}
+      <section className="space-y-4">
+        <div className={sectionTitle}>
+          <Palette size={13} />
+          <span>Theme</span>
+        </div>
+
+        <div className="rounded-xl bg-white/5 border border-white/8 p-4 space-y-3">
+          <div>
+            <p className={`font-medium text-white ${labelSize}`}>Appearance</p>
+            <p className={`text-white/45 mt-0.5 ${descSize}`}>
+              Applies instantly across the app. "Dynamic" rebuilds the palette from whichever poster
+              you're hovering. Same picker is also available as a floating button in the bottom-right corner.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {THEMES.map((t) => {
+              const active = themeId === t.id
+              return (
+                <button
+                  data-focusable
+                  key={t.id}
+                  onClick={() => setThemeId(t.id)}
+                  className={`text-left rounded-lg p-2.5 border transition ${
+                    active
+                      ? 'border-red-500/50 bg-red-600/20 text-white'
+                      : 'border-white/8 bg-white/5 text-white/60 hover:bg-white/8 hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    {t.swatches.map((c, i) => (
+                      <span
+                        key={i}
+                        className="w-4 h-4 rounded-full border border-black/30 flex-shrink-0"
+                        style={{ backgroundColor: c }}
+                      />
+                    ))}
+                    {active && <Check size={12} className="ml-auto text-red-300 flex-shrink-0" />}
+                  </div>
+                  <p className="text-sm font-medium leading-tight">{t.label}</p>
+                  <p className="text-[10px] text-white/40 mt-0.5 leading-tight">{t.blurb}</p>
+                </button>
+              )
+            })}
+          </div>
+        </div>
       </section>
 
       {/* ── Release Channel ─────────────────────────────────────────────────── */}
