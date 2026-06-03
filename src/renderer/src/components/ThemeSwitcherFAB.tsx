@@ -59,27 +59,27 @@ export default function ThemeSwitcherFAB({ corner = 'bottom-right' }: { corner?:
         aria-label="Change theme"
         aria-expanded={open}
         title="Theme"
-        className="w-10 h-10 rounded-full bg-surface/80 backdrop-blur-md border border-line text-secondary hover:text-primary hover:bg-elevated hover:border-lineStrong shadow-md transition-colors flex items-center justify-center"
+        className="w-11 h-11 rounded-full bg-elevated border border-white/20 text-white/80 hover:text-white hover:border-white/40 shadow-lg transition-colors flex items-center justify-center"
       >
-        <Palette className="w-4 h-4" />
+        <Palette className="w-5 h-5" />
       </button>
 
       {open && (
         <div
           ref={popoverRef}
-          className={`absolute ${panelVertical} ${panelHorizontal} w-[280px] max-w-[88vw] max-h-[70vh] overflow-y-auto rounded-2xl border border-line bg-elevated/95 backdrop-blur-md shadow-2xl p-3`}
+          className={`absolute ${panelVertical} ${panelHorizontal} w-[280px] max-w-[88vw] max-h-[70vh] overflow-y-auto rounded-2xl border border-white/15 bg-elevated shadow-2xl p-3`}
           role="dialog"
           aria-label="Theme picker"
         >
           <div className="flex items-center justify-between mb-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-secondary">
+            <p className="text-xs font-semibold uppercase tracking-wide text-white/60">
               Theme
             </p>
             <button
               data-focusable
               type="button"
               onClick={() => setOpen(false)}
-              className="p-1 rounded-md text-muted hover:text-primary hover:bg-surface transition-colors"
+              className="p-1 rounded-md text-white/40 hover:text-white hover:bg-white/10 transition-colors"
               aria-label="Close"
             >
               <X className="w-3.5 h-3.5" />
@@ -99,7 +99,7 @@ export default function ThemeSwitcherFAB({ corner = 'bottom-right' }: { corner?:
                   className={`text-left rounded-xl p-2.5 border transition-all ${
                     active
                       ? 'border-accent ring-1 ring-accent/40 bg-surface'
-                      : 'border-line bg-surface/60 hover:bg-surface hover:border-lineStrong'
+                      : 'border-white/10 bg-surface hover:bg-white/[0.06] hover:border-white/20'
                   }`}
                 >
                   <div className="flex items-center gap-1.5 mb-1.5">
@@ -116,7 +116,7 @@ export default function ThemeSwitcherFAB({ corner = 'bottom-right' }: { corner?:
                       </span>
                     )}
                   </div>
-                  <p className="text-xs font-semibold text-primary">{t.label}</p>
+                  <p className="text-xs font-semibold text-white">{t.label}</p>
                 </button>
               )
             })}
