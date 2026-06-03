@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion'
+import { useRef, useCallback } from 'react'
 import { Play, Plus, Check, X } from 'lucide-react'
 import { useWatchlist } from '@/contexts/WatchlistContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -22,55 +22,77 @@ export default function MovieCard({ item, onPlay, onRemove }: Props) {
       ? item.playedPercentage
       : null
 
+  // Dynamic-theme pulse — throttled to avoid strobing as the cursor scrubs
+  // across a row. pulseDynamicTheme is a no-op unless themeId === 'dynamic'.
+  const lastPulseAt = useRef(0)
+  const handlePosterHover = useCallback(() => {
+    const now = Date.now()
+    if (now - lastPulseAt.current < 80) return
+    lastPulseAt.current = now
+    pulseDynamicTheme(item.posterUrl, themeId).catch(() => {})
+  }, [item.posterUrl, themeId])
+
   function handleWatchlist(e: React.MouseEvent) {
     e.stopPropagation()
     toggle(item)
   }
 
+  function handleRemove(e: React.MouseEvent) {
+    e.stopPropagation()
+    onRemove?.(item)
+  }
+
+  // Two-element pattern: outer frame anchors the layout bounds + every
+  // overlay button (watchlist+, remove-from-CW, badges). Inner .poster-hover
+  // div is the ONLY thing that scales — siblings of it never grow with the
+  // card, so the watchlist+ button stays put regardless of CSS-var quirks.
   return (
-    <motion.div
+    <div
       data-focusable
-      className="relative flex-shrink-0 w-36 rounded-lg cursor-pointer group/card"
-      whileHover={{ scale: 1.05, zIndex: 10 }}
-      transition={{ duration: 0.2 }}
-      onClick={() => onPlay(item)}
-      onMouseEnter={() => { pulseDynamicTheme(item.posterUrl, themeId).catch(() => {}) }}
+      className="group/card relative flex-shrink-0 w-36"
+      onMouseEnter={handlePosterHover}
     >
-      {/* Poster */}
-      <div className="relative w-36 h-52 rounded-lg overflow-hidden bg-dark-card">
-        {progress !== null && (
-          <div className="absolute top-0 left-0 right-0 h-[3px] bg-white/20 z-10">
-            <div
-              className="h-full bg-white"
-              style={{ width: `${progress}%` }}
+      <div className="relative w-36 h-52">
+        {/* The scaling poster. Click target lives here. */}
+        <div
+          className="poster-hover absolute inset-0 rounded-lg overflow-hidden bg-dark-card cursor-pointer"
+          onClick={() => onPlay(item)}
+        >
+          {item.posterUrl ? (
+            <img
+              src={item.posterUrl}
+              alt={item.title}
+              className="w-full h-full object-cover"
+              loading="lazy"
             />
-          </div>
-        )}
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-dark-card">
+              <span className="text-white/20 text-xs text-center px-2">{item.title}</span>
+            </div>
+          )}
 
-        {item.posterUrl ? (
-          <img
-            src={item.posterUrl}
-            alt={item.title}
-            className="w-full h-full object-cover"
-            loading="lazy"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-dark-card">
-            <span className="text-white/20 text-xs text-center px-2">{item.title}</span>
-          </div>
-        )}
+          {/* Progress bar — between 5% and 90% */}
+          {progress !== null && (
+            <div className="absolute top-0 left-0 right-0 h-[3px] bg-white/20 z-10">
+              <div className="h-full bg-white" style={{ width: `${progress}%` }} />
+            </div>
+          )}
 
-        {/* Overlay on hover */}
-        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/card:opacity-100 transition-opacity flex items-center justify-center">
-          <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center">
-            <Play size={16} fill="black" className="text-black ml-0.5" />
+          {/* Hover overlay with play button — fades in with group hover */}
+          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/card:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+            <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center">
+              <Play size={16} fill="black" className="text-black ml-0.5" />
+            </div>
           </div>
         </div>
 
-        {/* Remove from Continue Watching */}
+        {/* ─── Siblings of .poster-hover — never grow with the card ─── */}
+
+        {/* Remove from Continue Watching (top-left) */}
         {onRemove && (
           <button
-            onClick={(e) => { e.stopPropagation(); onRemove(item) }}
+            data-focusable
+            onClick={handleRemove}
             className="absolute top-2 left-2 z-20 w-7 h-7 rounded-full
                        bg-black/60 border border-white/20
                        flex items-center justify-center
@@ -81,8 +103,9 @@ export default function MovieCard({ item, onPlay, onRemove }: Props) {
           </button>
         )}
 
-        {/* Watchlist toggle */}
+        {/* Watchlist + (top-right) */}
         <button
+          data-focusable
           onClick={handleWatchlist}
           className="absolute top-2 right-2 z-20 w-7 h-7 rounded-full
                      bg-black/60 border border-white/20
@@ -97,9 +120,9 @@ export default function MovieCard({ item, onPlay, onRemove }: Props) {
           )}
         </button>
 
-        {/* Bottom-left badges */}
+        {/* Bottom-left badges (Watched / Anime) */}
         {(watched || item.isAnime) && (
-          <div className="absolute bottom-2 left-2 z-10 flex flex-col gap-1">
+          <div className="absolute bottom-2 left-2 z-20 flex flex-col gap-1 pointer-events-none">
             {watched && (
               <span className="text-[9px] font-bold bg-emerald-500/90 text-white px-1.5 py-0.5 rounded uppercase tracking-wide">
                 Watched
@@ -114,9 +137,9 @@ export default function MovieCard({ item, onPlay, onRemove }: Props) {
         )}
       </div>
 
-      {/* Title */}
+      {/* Title & year — under the (unscaled) frame so they don't shift on hover */}
       <p className="mt-1.5 text-xs text-white/70 truncate leading-tight">{item.title}</p>
       {item.year && <p className="text-[10px] text-white/30">{item.year}</p>}
-    </motion.div>
+    </div>
   )
 }

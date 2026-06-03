@@ -317,6 +317,51 @@
   }
 }
 
+/* ──────────────────────────────────────────────────────────────────────
+ * Poster card hover
+ *
+ * The whole .poster-hover element scales on hover so the rounded frame
+ * grows with the image (not just the image inside fixed bounds). Buttons
+ * and badges sit as SIBLINGS of .poster-hover in MovieCard, so they don't
+ * grow with the transform — the watchlist+ button stays put, the badges
+ * stay anchored to the unscaled outer frame.
+ *
+ * Shadow is a single soft drop — the hover state EXPANDS the existing
+ * shadow rather than introducing one from nothing, so the transition
+ * reads as the card lifting higher.
+ *
+ * Transform values are hardcoded (not var()-driven) because unregistered
+ * CSS variables in `transform` are treated as discrete, not interpolated —
+ * the animation would snap instead of glide.
+ * ────────────────────────────────────────────────────────────────────── */
+.poster-hover {
+  box-shadow:
+    0 2px 6px -2px rgba(0, 0, 0, 0.35),
+    0 8px 18px -8px rgba(0, 0, 0, 0.3);
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translateY(0) scale(1);
+  transform-origin: center center;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .poster-hover:hover {
+    transform: translateY(-8px) scale(1.08);
+    box-shadow:
+      0 4px 10px -2px rgba(0, 0, 0, 0.4),
+      0 24px 48px -12px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* Gamepad-focused poster: same growth as mouse hover so spatial nav
+   gets the same visual lift. */
+.gp-focused .poster-hover {
+  transform: translateY(-8px) scale(1.08);
+  box-shadow:
+    0 4px 10px -2px rgba(0, 0, 0, 0.4),
+    0 24px 48px -12px rgba(0, 0, 0, 0.6);
+}
+
 @layer utilities {
   /* Draggable titlebar region */
   .app-drag {
@@ -399,10 +444,10 @@
 
 /* ── Gamepad hover effects (mirror mouse hover) ────────────────────────── */
 
-/* Poster cards: scale up + show play overlay + watchlist button */
-.gp-focused.group\/card {
-  transform: scale(1.05);
-}
+/* Poster cards: the .poster-hover scale-up is handled above (gp-focused
+   .poster-hover rule) so the watchlist+ button stays put just like with
+   mouse hover. Here we just force the group-hover opacity-100 to engage
+   so the play overlay + buttons fade in. */
 .gp-focused.group\/card .group-hover\/card\:opacity-100 {
   opacity: 1 !important;
 }

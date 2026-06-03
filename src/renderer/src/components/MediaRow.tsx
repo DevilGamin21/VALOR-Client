@@ -34,15 +34,21 @@ export default function MediaRow({ title, items, onPlay, onRemove }: Props) {
           <ChevronLeft size={24} className="text-white drop-shadow" />
         </button>
 
-        {/* Row */}
+        {/* Row — overflow-x-auto on the outer scroller implicitly forces
+            overflow-y:auto on the SAME element, which would clip the scaled
+            poster's translateY/scale lift at the row's top/bottom edges.
+            Inner wrapper has py-6 + px-4 so the 1.08× scale + -8px lift
+            grows INTO that padding instead of escaping the scroll box. */}
         <div
           ref={rowRef}
-          className="flex gap-3 overflow-x-auto scroll-smooth px-6 pb-2 no-scrollbar"
+          className="overflow-x-auto scroll-smooth no-scrollbar"
           style={{ scrollbarWidth: 'none' }}
         >
-          {items.map((item) => (
-            <MovieCard key={`${item.id}-${item.type}`} item={item} onPlay={onPlay} onRemove={onRemove} />
-          ))}
+          <div className="flex gap-3 py-6 px-6 overflow-visible">
+            {items.map((item) => (
+              <MovieCard key={`${item.id}-${item.type}`} item={item} onPlay={onPlay} onRemove={onRemove} />
+            ))}
+          </div>
         </div>
 
         {/* Right arrow */}
